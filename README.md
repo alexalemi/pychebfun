@@ -50,7 +50,7 @@ These chebfuns can then be manipulated, used in other functions, differentiated,
     len(f)      #number of interpolating points
     f(rand(10)) #chebfuns behave like ufuncs
 
-![an ipython notebook screenshot](/docs/ipython-notebook-screenshot.png "ipython notebook screenshot")
+![an ipython notebook screenshot](https://github.com/alexalemi/pychebfun/raw/master/docs/ipython-notebook-screenshot.png "ipython notebook screenshot")
 
 Features
 --------
