@@ -8,8 +8,8 @@ Purpose
 
 To try to replicate some of the functionality of Chebfun in python using the tools that already exist in numpy/scipy/pylab
 
-Usage
------
+Basic Usage
+-----------
 
 The package is setup to be be imported in full
 
@@ -25,9 +25,48 @@ will create a chebfun on the default interval of `(-1,1)`.
 
 The Chebfun constructor also excepts any python function, or strings
 
-    Chebfun(lambda x: x**2, (-5,5))
-    Chebfun("sin(x)+sin(x**2)",(0,10))
+    f = Chebfun(lambda x: x**2, (-5,5))
+    g = Chebfun("sin(x)+sin(x**2)",(0,10))
 
 The optional second argument gives the domain the function should be defined on.
+
+These chebfuns can then be manipulated, used in other functions, differentiated, integrated, plotted, the roots found, etc.  Note that I've also implemented an ipython display hook that will default to displaying a plot of the function
+
+    f.deriv()   #take a derivative
+    deriv(f)    #another way
+    f.deriv(2)  #second derivative
+
+    f.integ()   #integral
+
+    f**2        #square it
+    f.plot()    #plot the function
+    f.errplot() #see the error of the interplate
+
+    f.introots()    #see the roots in the interval
+    f.domain    #domain of the function
+    f.cheb      #the chebyshev polynomial object
+    f.coef      #array of coefficients
+
+    len(f)      #number of interpolating points
+    f(rand(10)) #chebfuns behave like ufuncs
+
+![an ipython notebook screenshot](/docs/ipython-notebook-screenshot.png "ipython notebook screenshot")
+
+Features
+--------
+
+Currently, the chebfuns *should* work on any finite domain, and fit to near machine precision
+
+Integrate, differentiate, find roots, manipulate, and in general have fun with functions
+
+
+ToDo
+----
+
+* Implement piecewise-chebfuns
+* try to handle infinite domains
+* try to make chepops
+
+
 
 
