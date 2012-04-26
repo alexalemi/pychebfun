@@ -11,7 +11,7 @@ import pylab as py
 
 import numpy.polynomial.chebyshev as cheb
 
-from scipy.fftpack import idct, dct
+from scipy.fftpack import idct, dct, ifft, fft
 
 import sys
 
@@ -88,6 +88,43 @@ class Chebfun(object):
 		if need_construct:
 			self.construct()
 
+	def _fit_builtin(self,func,N):
+		""" Return the chebyshev coefficients using the builtin chebfit """
+		pts = cheb.chebpts2(N)
+		y = func(pts)
+		coeffs = cheb.chebfit(pts,y,N)
+		return coeffs
+
+	def _fit_idct(self,func,N):
+		""" Return the chebyshev coefficients using the idct """
+		pts = -cheb.chebpts1(N)
+		y = func(pts)
+		coeffs = idct(y,type=3)/N
+		coeffs[0] /= 2.
+		coeffs[-1] /= 2.
+		return coeffs
+
+	def _fit_fft(self,func,N):
+		""" Get the chebyshev coefficients using fft
+			inspired by: http://www.scientificpython.net/1/post/2012/4/the-fast-chebyshev-transform.html
+			*Doesn't seem to work right now*
+		"""
+		pts = cheb.chebpts2(N)
+		y = func(pts)
+		A = y[:,np.newaxis]
+		m = np.size(y,0)
+		k = m-1-np.arange(m-1)
+		V = np.vstack((A[0:m-1,:],A[k,:]))
+		F = ifft(V,n=None,axis=0)
+		B = np.vstack((F[0,:],2*F[1:m-1,:],F[m-1,:]))
+
+		if A.dtype != 'complex':
+			return np.real(B)
+		return B
+
+
+	_fit = _fit_idct
+
 	def construct(self):
 		""" Construct the chebyshev polynomial """
 		#map to the interval (-1,1)
@@ -97,16 +134,8 @@ class Chebfun(object):
 		done = False
 		while not done:
 			N = 2**power
-			
-			#pts = cheb.chebpts2(N)
-			pts = -cheb.chebpts1(N)
-			
-			y = func(pts)
-			
-			#coeffs = cheb.chebfit(pts,y,N)
-			coeffs = idct(y,type=3)/N
-			coeffs[0] /= 2.
-			coeffs[-1] /= 2.
+	
+			coeffs = self._fit(func,N)
 
 			if all(np.abs(coeffs[-2:]) <= np.max(np.abs(coeffs))*2*eps):
 				done = True
@@ -282,6 +311,14 @@ class Chebfun(object):
 
 	def __len__(self):
 		return len(self.cheb)
+
+	def grid(self,N=1000):
+		""" Return the chebfun evaluated on a discrete lattice
+			returns both the grid, and the evaluations
+		"""
+		a,b = self.domain
+		xs = np.linspace(a,b,N)
+		return (xs, self.__call__(xs))
 
 	def plot(self,N=1000):
 		a,b = self.domain
