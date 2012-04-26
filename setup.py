@@ -4,12 +4,14 @@ import sys
 import os
 from distutils.core import setup
 
-import chebfun
+import pychebfun
 
-setup(name="chebfun",
-        version=chebfun.__version__,
+setup(name="pychebfun",
+        version=pychebfun.__version__,
         description="Simple Chebfun clone",
-        long_description=chebfun.__doc__,
-        author=chebfun.__author__,
+        long_description=pychebfun.__doc__,
+        author=pychebfun.__author__,
         author_email="alexalemi@gmail.com",
-        py_modules=['chebfun'])
+        py_modules=['pychebfun'],
+        package_data={"":["LICENSE"]},
+        license="ISCL")
