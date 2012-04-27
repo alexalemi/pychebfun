@@ -375,6 +375,10 @@ class Chebfun(object):
 		""" Get the norm of our chebfun """
 		return math.sqrt((self.__pow__(2)).quad())
 
+	def dot(self,other):
+		""" return the dot product of the two functions """
+		return (self.__mul__(other)).quad()
+
 	def roots(self):
 		""" Get all of the roots,
 			note that a lot of these are outside the domain
