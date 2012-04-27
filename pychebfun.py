@@ -20,7 +20,7 @@ import sys
 Chebyshev = cheb.Chebyshev
 
 #the maximum number of points to try is 2**MAXPOW
-MAXPOW = 16
+MAXPOW = 15
 
 #Let's overload all the numpy ufuncs
 #  so that if they are called on a chebfun, make a new chebfun
@@ -456,8 +456,7 @@ class Chebfun(object):
 		""" Have the plot be the representation in ipython notebook """
 		self.plot()
 
-
-#a couple convienence chebfuns
+# a convenience chebfun
 x = Chebfun("x")
 
 def xdom(domain=(-1,1),*args,**kwargs):
