@@ -73,15 +73,17 @@ class Chebfun(object):
 		self.mapper = lambda x: x
 		self.imapper = lambda x: x
 		self.domain = (-1,1)
+		#tells if we've had problems
+		self.naf = False
 
 		if edges is not None:
 			#if we were passed some edges
 			a,b = edges
 			self.domain = (a,b)
 			#mapper maps from (a,b) to (-1,1)
-			self.mapper = lambda x: 2.*(x-a)/(b-a)-1.
+			self.mapper = lambda x: (2*x-(a+b))/(b-a)
 			#imapper maps from (-1,1) to (a,b)
-			self.imapper = lambda x: 0.5*(b-a)*(x+1)+a
+			self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
 		if rtol is None:
 			#by default use numpy float tolerance
@@ -187,8 +189,9 @@ class Chebfun(object):
 				done = True
 			
 			power += 1
-			if power >= MAXPOW:
+			if power > MAXPOW and not done:
 				print "Warning, we've hit the maximum power"
+				self.naf = True
 				done = True
 
 		coeffs = self._trim_arr(coeffs)
@@ -316,9 +319,13 @@ class Chebfun(object):
 
 	def __pow__(self,pow):
 		""" Raise to a power """
-		newcheb = self.cheb.__pow__(pow)
-		newguy = self.__class__(newcheb,rtol=self.rtol)
-		newguy.trim()
+		try:
+			newcheb = self.cheb.__pow__(pow)
+			newguy = self.__class__(newcheb,rtol=self.rtol)
+			newguy.trim()
+		except ValueError:
+			#we've been given a non pos integer power
+			newguy = self.__class__(lambda x: self.func(x)**pow,self.domain,rtol=self.rtol)
 		return newguy
 
 	def __abs__(self):
