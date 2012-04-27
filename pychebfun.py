@@ -7,6 +7,7 @@ __author__ = "Alex Alemi"
 __version__ = "0.1"
 
 import math, warnings
+from bisect import bisect, insort
 import numpy as np
 import pylab as py
 
@@ -49,6 +50,7 @@ for k,v in mathfuncs.iteritems():
 
 #A simple convergence warning
 class ConvergenceWarning(Warning): pass 
+class DomainWarning(Warning): pass
 warnings.simplefilter("always")
 
 class Chebfun(object):
@@ -56,7 +58,7 @@ class Chebfun(object):
 	domain with a chebyshev polynomial to within machine precision 
 	"""
 
-	def __init__(self,func,edges=None,N=None,rtol=None):
+	def __init__(self,func,domain=None,N=None,rtol=None):
 		""" Initilize the chebfun
 	 
 				func can be one of
@@ -79,9 +81,9 @@ class Chebfun(object):
 		#tells if we've had problems
 		self.naf = False
 
-		if edges is not None:
-			#if we were passed some edges
-			a,b = edges
+		if domain is not None:
+			#if we were passed a domain
+			a,b = domain
 			self.domain = (a,b)
 			#mapper maps from (a,b) to (-1,1)
 			self.mapper = lambda x: (2*x-(a+b))/(b-a)
@@ -220,7 +222,9 @@ class Chebfun(object):
 			assert mya <= othera and myb >= otherb, "Domain must include range of other function"
 
 			return self.__class__(lambda x: self.func(arg.func(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
-
+		a,b = self.domain
+		if np.any( (arg < a) + (arg > b) ):
+			warnings.warn("Evaluating outside the domain", DomainWarning)
 		return self.cheb(arg)
 
 	def __add__(self,other):
@@ -453,10 +457,12 @@ class Chebfun(object):
 		self.plot()
 
 
-
 #a couple convienence chebfuns
 x = Chebfun("x")
-xp = Chebfun("x",(0,1))
+
+def xdom(domain=(-1,1),*args,**kwargs):
+	""" Convenience function to get an identity on whatever interval you want"""
+	return Chebfun("x",domain=domain,*args,**kwargs)
 
 def deriv(x,*args,**kwargs):
 	return x.deriv(*args,**kwargs)
@@ -464,4 +470,4 @@ def deriv(x,*args,**kwargs):
 def integ(x,*args,**kwargs):
 	return x.integ(*args,**kwargs)
 
-__all__ = ["Chebfun","wrap","x","xp","deriv","integ"] + mathfuncs.keys()
+__all__ = ["Chebfun","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
