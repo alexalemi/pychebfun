@@ -60,6 +60,17 @@ Currently, the chebfuns *should* work on any finite domain, and fit to near mach
 Integrate, differentiate, find roots, manipulate, and in general have fun with functions
 
 
+Installation
+------------
+
+    sudo python setup.py install
+
+Tutorial
+--------
+
+A tutorial ipython notebook is included in the docs/ folder
+
+
 ToDo
 ----
 
