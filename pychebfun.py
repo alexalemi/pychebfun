@@ -346,7 +346,7 @@ class Chebfun(object):
 		result =  sum(weights*goodcoeffs)
 		#need to multiply by domain
 		a,b = self.domain
-		return result * (b-a)
+		return result *0.5 * (b-a)
 
 	def roots(self):
 		""" Get all of the roots,
