@@ -6,7 +6,7 @@ Chebfun is a work in progress clone of the Matlab Chebfun project"""
 __author__ = "Alex Alemi"
 __version__ = "0.1"
 
-import math, warnings
+import math, warnings, itertools
 from bisect import bisect, insort
 import numpy as np
 import pylab as py
@@ -90,15 +90,18 @@ class Chebfun(object):
 			#imapper maps from (-1,1) to (a,b)
 			self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
-		if rtol is None:
-			#by default use numpy float tolerance
-			self.rtol = 3.*np.finfo(np.float).eps
-		else:
-			self.rtol = rtol
+		#by default use numpy float tolerance
+		self.rtol = rtol or 3.*np.finfo(np.float).eps
 
 		need_construct = True
 
-		if isinstance(func,Chebyshev):
+		if isinstance(func, self.__class__):
+			#if we have a chebfun, just copy it
+			self.cheb = func.cheb
+			self.domain = func.domain
+			self.rtol = func.rtol
+			need_construct = False
+		elif isinstance(func,Chebyshev):
 			#we have a chebyshev poly
 			self.cheb = func
 			self.func = self.cheb
@@ -409,6 +412,11 @@ class Chebfun(object):
 		""" get the coefficients """
 		return self.cheb.coef
 
+	@property 
+	def scl(self):
+		""" get the *scale* of the chebfun, i.e. its largest coefficient """
+		return np.abs(self.coef).max()
+
 	def introots(self):
 		""" Return all of the real roots in the domain """
 		a,b = self.domain
@@ -455,6 +463,82 @@ class Chebfun(object):
 	def _repr_html_(self):
 		""" Have the plot be the representation in ipython notebook """
 		self.plot()
+
+
+class PiecewiseChebfun(Chebfun):
+	""" A container for a piecewise chebfun """
+	def __init__(self, funcs, edges, imps = None, domain = None, rtol=None):
+		""" Initialize """
+		assert len(funcs) == len(edges)+1, "Number of funcs and interior edges don't match"		
+		assert edges == sorted(edges), "Edges must be in order"
+
+		self.funcs = funcs
+		self.edges = edges
+
+		self.mapper = lambda x: x
+		self.imapper = lambda x: x
+		self.domain = (-1,1)
+		#tells if we've had problems
+		self.naf = False
+
+		if domain is not None:
+			#if we were passed a domain
+			a,b = domain
+			self.domain = (a,b)
+			#mapper maps from (a,b) to (-1,1)
+			self.mapper = lambda x: (2*x-(a+b))/(b-a)
+			#imapper maps from (-1,1) to (a,b)
+			self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
+
+		#by default use numpy float tolerance
+		self.rtol = rtol or 3.*np.finfo(np.float).eps
+
+		if imps is None:
+			# by default make the values at the breaks the average on either side
+			nfuncs = len(self.funcs)
+			pairs = zip(xrange(nfuncs),xrange(1,nfuncs))
+			self.imps = [ 0.5*(self.funcs[i](x) + self.funcs[j](x)) for ((i,j),x) in zip(pairs,edges) ]
+		else:
+			self.imps = imps
+
+		a,b = self.domain
+		fulledges = [a] + edges + [b]
+		#get the individual domains
+		edgepairs = zip(fulledges,fulledges[1:])
+
+		#initial go at chebfuns
+		self.chebfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
+
+
+	@property 
+	def nfuncs(self):
+		""" number of functions """
+		return len(self.funcs)
+
+	def __call__(self,xs):
+		""" Evaluate on some points """
+		#local access
+		edges, imps, chebfuns = self.edges, self.imps, self.chebfuns
+		@np.vectorize
+		def call_on_x(x):
+			if x in edges:
+				return imps[edges.index(x)]
+			else:
+				pk = bisect(edges,x)
+				return chebfuns[pk](x)
+
+		return call_on_x(xs)
+
+	def __len__(self):
+		""" get the number of funcs """
+		return self.nfuncs
+
+	def __repr__(self):
+		out = "<{}(nfuncs={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
+					self.__len__(),self.domain,self.rtol,self.naf)
+		return out
+
+
 
 # a convenience chebfun
 x = Chebfun("x")
