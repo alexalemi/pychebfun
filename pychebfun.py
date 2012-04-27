@@ -6,7 +6,7 @@ Chebfun is a work in progress clone of the Matlab Chebfun project"""
 __author__ = "Alex Alemi"
 __version__ = "0.1"
 
-import math
+import math, warnings
 import numpy as np
 import pylab as py
 
@@ -47,6 +47,9 @@ mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
 for k,v in mathfuncs.iteritems():
 	setattr(this_module,k,v)
 
+#A simple convergence warning
+class ConvergenceWarning(Warning): pass 
+warnings.simplefilter("always")
 
 class Chebfun(object):
 	""" A simple chebfun object, which represents a function defined on a
@@ -190,7 +193,7 @@ class Chebfun(object):
 			
 			power += 1
 			if power > MAXPOW and not done:
-				print "Warning, we've hit the maximum power"
+				warnings.warn("we've hit the maximum power",ConvergenceWarning)
 				self.naf = True
 				done = True
 
@@ -441,8 +444,8 @@ class Chebfun(object):
 		return py.semilogy(abs(self.cheb.coef),*args,**kwargs)
 
 	def __repr__(self):
-		out = "<{}(N={},domain={})>".format(self.__class__.__name__,
-					self.__len__(),self.domain)
+		out = "<{}(N={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
+					self.__len__(),self.domain,self.rtol,self.naf)
 		return out
 
 	def _repr_html_(self):
