@@ -285,17 +285,17 @@ class Chebfun(object):
 	def __div__(self,other):
 		""" Division: makes a new chebfun """
 		try:
-			newguy = self.__class__(lambda x: self.func(x)/other.func(x))
+			newguy = self.__class__(lambda x: self.func(x)/other.func(x),self.domain)
 		except AttributeError:
-			newguy = self.__class__(lambda x: self.func(x)/other)
+			newguy = self.__class__(lambda x: self.func(x)/other,self.domain)
 		return newguy
 
 	def __rdiv__(self,other):
 		""" Reversed divide """
 		try:
-			newguy = self.__class__(lambda x: other.func(x)/self.func(x))
+			newguy = self.__class__(lambda x: other.func(x)/self.func(x),self.domain)
 		except AttributeError:
-			newguy = self.__class__(lambda x: other/self.func(x))
+			newguy = self.__class__(lambda x: other/self.func(x),self.domain)
 		return newguy
 
 	def __pow__(self,pow):
@@ -307,7 +307,7 @@ class Chebfun(object):
 
 	def __abs__(self):
 		""" absolute value """
-		newguy = self.__class__(lambda x: np.abs(self.func(x)))
+		newguy = self.__class__(lambda x: np.abs(self.func(x)),self.domain)
 		return newguy
 
 	def __neg__(self):
@@ -402,7 +402,7 @@ class Chebfun(object):
 		""" plot the absolute errors on a log plot """
 		a,b = self.domain
 		xs, ys = self.grid(N)
-		diff = abs(self.__call__(xs) - ys)
+		diff = abs(self.func(xs) - ys)
 		return py.semilogy(xs, diff,*args,**kwargs)
 
 	def coefplot(self,*args,**kwargs):
