@@ -68,7 +68,12 @@ Installation
 Tutorial
 --------
 
-A tutorial ipython notebook is included in the docs/ folder
+A set of tutorial ipython notebooks are included in the `docs/` folder, to run in their full glory
+
+    cd docs/
+    ipython notebook --pylab=inline
+
+Note that you need a relatively new version of ipython
 
 
 ToDo
