@@ -6,6 +6,7 @@ Chebfun is a work in progress clone of the Matlab Chebfun project"""
 __author__ = "Alex Alemi"
 __version__ = "0.1"
 
+import math
 import numpy as np
 import pylab as py
 
@@ -26,7 +27,7 @@ def wrap(func):
 	def chebfunc(arg):
 		__doc__  = func.__doc__
 		if isinstance(arg,Chebfun):
-			return arg.__class__(lambda x: func(arg.func(x)), arg.domain)
+			return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
 		else:
 			return func(arg)
 	return chebfunc
@@ -212,7 +213,7 @@ class Chebfun(object):
 			othera, otherb = arg.range
 			assert mya <= othera and myb >= otherb, "Domain must include range of other function"
 
-			return self.__class__(lambda x: self.func(arg.func(x)), arg.domain)
+			return self.__class__(lambda x: self.func(arg.func(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
 
 		return self.cheb(arg)
 
@@ -220,9 +221,11 @@ class Chebfun(object):
 		""" Add  """
 		try:
 			newcheb = self.cheb.__add__(other.cheb)
+			rtol = min(other.rtol,self.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__add__(other)
-		newguy =  self.__class__(newcheb)
+			rtol = self.rtol
+		newguy =  self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -231,9 +234,12 @@ class Chebfun(object):
 		""" Reversed Add """
 		try:
 			newcheb = self.cheb.__radd__(other.cheb)
+			rtol = min(other.rtol,self.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__radd__(other)
-		newguy =  self.__class__(newcheb)
+			rtol = self.rtol
+
+		newguy =  self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -242,9 +248,11 @@ class Chebfun(object):
 		""" Subtract  """
 		try:
 			newcheb = self.cheb.__sub__(other.cheb)
+			rtol = min(other.rtol, self.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__sub__(other)
-		newguy =  self.__class__(newcheb)
+			rtol = self.rtol
+		newguy =  self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -253,9 +261,11 @@ class Chebfun(object):
 		""" Reversed Subtract """
 		try:
 			newcheb = self.cheb.__rsub__(other.cheb)
+			rtol = min(self.rtol, other.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__rsub__(other)
-		newguy =  self.__class__(newcheb)
+			rtol = self.rtol
+		newguy =  self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -264,9 +274,11 @@ class Chebfun(object):
 		""" Multiply """
 		try:
 			newcheb = self.cheb.__mul__(other.cheb)
+			rtol = min(self.rtol, other.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__mul__(other)
-		newguy = self.__class__(newcheb)
+			rtol = self.rtol
+		newguy = self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -275,9 +287,11 @@ class Chebfun(object):
 		""" Reverse Multiply """
 		try:
 			newcheb = self.cheb.__rmul__(other.cheb)
+			rtol = min(self.rtol, other.rtol)
 		except AttributeError:
 			newcheb = self.cheb.__rmul__(other)
-		newguy = self.__class__(newcheb)
+			rtol = self.rtol
+		newguy = self.__class__(newcheb,rtol=rtol)
 		newguy.trim()
 
 		return newguy
@@ -285,29 +299,31 @@ class Chebfun(object):
 	def __div__(self,other):
 		""" Division: makes a new chebfun """
 		try:
-			newguy = self.__class__(lambda x: self.func(x)/other.func(x),self.domain)
+			assert other.domain == self.domain, "Domains must match"
+			newguy = self.__class__(lambda x: self.func(x)/other.func(x),self.domain,rtol=min(self.rtol,other.rtol))
 		except AttributeError:
-			newguy = self.__class__(lambda x: self.func(x)/other,self.domain)
+			newguy = self.__class__(lambda x: self.func(x)/other,self.domain,rtol=self.rtol)
 		return newguy
 
 	def __rdiv__(self,other):
 		""" Reversed divide """
 		try:
-			newguy = self.__class__(lambda x: other.func(x)/self.func(x),self.domain)
+			assert other.domain == self.domain, "Domains must match"
+			newguy = self.__class__(lambda x: other.func(x)/self.func(x),self.domain,rtol=min(self.rtol,other.rtol))
 		except AttributeError:
-			newguy = self.__class__(lambda x: other/self.func(x),self.domain)
+			newguy = self.__class__(lambda x: other/self.func(x),self.domain,rtol=self.rtol)
 		return newguy
 
 	def __pow__(self,pow):
 		""" Raise to a power """
 		newcheb = self.cheb.__pow__(pow)
-		newguy = self.__class__(newcheb)
+		newguy = self.__class__(newcheb,rtol=self.rtol)
 		newguy.trim()
 		return newguy
 
 	def __abs__(self):
 		""" absolute value """
-		newguy = self.__class__(lambda x: np.abs(self.func(x)),self.domain)
+		newguy = self.__class__(lambda x: np.abs(self.func(x)),self.domain,rtol=self.rtol)
 		return newguy
 
 	def __neg__(self):
@@ -321,7 +337,7 @@ class Chebfun(object):
 	def deriv(self,m=1):
 		""" Take a derivative, m is the order """
 		newcheb = self.cheb.deriv(m)
-		newguy = self.__class__(newcheb)
+		newguy = self.__class__(newcheb,rtol=self.rtol)
 		newguy.trim()
 		return newguy
 
@@ -336,7 +352,7 @@ class Chebfun(object):
 		else:
 			lbnd = a
 		newcheb = self.cheb.integ(m,k=k,lbnd=lbnd)
-		newguy = self.__class__(newcheb)
+		newguy = self.__class__(newcheb,rtol=self.rtol)
 		return newguy
 
 	def quad(self):
@@ -347,6 +363,10 @@ class Chebfun(object):
 		#need to multiply by domain
 		a,b = self.domain
 		return result *0.5 * (b-a)
+
+	def norm(self):
+		""" Get the norm of our chebfun """
+		return math.sqrt((self.__pow__(2)).quad())
 
 	def roots(self):
 		""" Get all of the roots,
