@@ -6,7 +6,7 @@ Chebfun is a work in progress clone of the Matlab Chebfun project"""
 __author__ = "Alex Alemi"
 __version__ = "0.1"
 
-import math, warnings, itertools
+import math, warnings, itertools, copy, operator
 from bisect import bisect, insort
 import numpy as np
 import pylab as py
@@ -28,11 +28,16 @@ def wrap(func):
 	def chebfunc(arg):
 		__doc__  = func.__doc__
 		if isinstance(arg,Chebfun):
-			return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
+			#return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
+			return arg._wrap_call(func)
 		else:
 			return func(arg)
 	return chebfunc
 
+def opr(func):
+	def rfunc(*args):
+		return func(*reversed(args))
+	return rfunc
 
 this_module = sys.modules[__name__]
 #list of numpy functions to overload
@@ -136,6 +141,10 @@ class Chebfun(object):
 		if need_construct:
 			self.construct()
 
+		#this allows me to switch between keeping the funcs and using the chebfun
+		#to evaluate the deeper things
+		self._eval = self.__call__
+
 	def _fit_builtin(self,func,N):
 		""" Return the chebyshev coefficients using the builtin chebfit """
 		pts = cheb.chebpts2(N)
@@ -216,6 +225,35 @@ class Chebfun(object):
 		coeffs = self._trim_arr(self.cheb.coef)
 		self.cheb = Chebyshev(coeffs,domain=self.domain)
 
+	def _new_func(self,func,rtol=None,domain=None):
+		""" Replace the function with another function """
+		rtol = rtol or self.rtol
+		domain = domain or self.domain
+		newguy = self.__class__(func,rtol=rtol,domain=domain)
+		return newguy
+
+	def _wrap_call(self,func):
+		""" We were called by a wrapped function """
+		newguy = self._new_func(lambda x: func(self._eval(x)))
+		return newguy
+
+	def _new_domain(self,other):
+		""" Compose two domains """
+		a,b = self.domain
+		othera, otherb = getattr(other,"domain",(-np.inf,np.inf))
+		return (max(a,othera), min(b,otherb))
+
+	def _compose(self,other,op):
+		if callable(other):
+			newfunc = lambda x: op(self._eval(x), other(x))
+		else:
+			newfunc = lambda x: op(self._eval(x) , other)
+
+		new_rtol = max(self.rtol, getattr(other,"rtol",0))
+		new_domain = self._new_domain(other)
+
+		return self._new_func(newfunc,rtol=new_rtol,domain=new_domain)
+
 	def __call__(self,arg):
 		""" make it behave like a function """
 		if isinstance(arg,Chebfun):
@@ -224,7 +262,7 @@ class Chebfun(object):
 			othera, otherb = arg.range
 			assert mya <= othera and myb >= otherb, "Domain must include range of other function"
 
-			return self.__class__(lambda x: self.func(arg.func(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
+			return self._new_func(lambda x: self._eval(arg._eval(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
 		a,b = self.domain
 		if np.any( (arg < a) + (arg > b) ):
 			warnings.warn("Evaluating outside the domain", DomainWarning)
@@ -232,115 +270,43 @@ class Chebfun(object):
 
 	def __add__(self,other):
 		""" Add  """
-		try:
-			newcheb = self.cheb.__add__(other.cheb)
-			rtol = min(other.rtol,self.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__add__(other)
-			rtol = self.rtol
-		newguy =  self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, operator.add)	
 
 	def __radd__(self,other):
 		""" Reversed Add """
-		try:
-			newcheb = self.cheb.__radd__(other.cheb)
-			rtol = min(other.rtol,self.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__radd__(other)
-			rtol = self.rtol
-
-		newguy =  self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, opr(operator.add))
 
 	def __sub__(self,other):
 		""" Subtract  """
-		try:
-			newcheb = self.cheb.__sub__(other.cheb)
-			rtol = min(other.rtol, self.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__sub__(other)
-			rtol = self.rtol
-		newguy =  self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, operator.sub)
 
 	def __rsub__(self,other):
 		""" Reversed Subtract """
-		try:
-			newcheb = self.cheb.__rsub__(other.cheb)
-			rtol = min(self.rtol, other.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__rsub__(other)
-			rtol = self.rtol
-		newguy =  self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, opr(operator.sub))
 
 	def __mul__(self,other):
 		""" Multiply """
-		try:
-			newcheb = self.cheb.__mul__(other.cheb)
-			rtol = min(self.rtol, other.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__mul__(other)
-			rtol = self.rtol
-		newguy = self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, operator.mul)
 
 	def __rmul__(self,other):
 		""" Reverse Multiply """
-		try:
-			newcheb = self.cheb.__rmul__(other.cheb)
-			rtol = min(self.rtol, other.rtol)
-		except AttributeError:
-			newcheb = self.cheb.__rmul__(other)
-			rtol = self.rtol
-		newguy = self.__class__(newcheb,rtol=rtol)
-		newguy.trim()
-
-		return newguy
+		return self._compose(other, opr(operator.mul))
 
 	def __div__(self,other):
 		""" Division: makes a new chebfun """
-		try:
-			assert other.domain == self.domain, "Domains must match"
-			newguy = self.__class__(lambda x: self.func(x)/other.func(x),self.domain,rtol=min(self.rtol,other.rtol))
-		except AttributeError:
-			newguy = self.__class__(lambda x: self.func(x)/other,self.domain,rtol=self.rtol)
-		return newguy
+		return self._compose(other, operator.div)
 
 	def __rdiv__(self,other):
 		""" Reversed divide """
-		try:
-			assert other.domain == self.domain, "Domains must match"
-			newguy = self.__class__(lambda x: other.func(x)/self.func(x),self.domain,rtol=min(self.rtol,other.rtol))
-		except AttributeError:
-			newguy = self.__class__(lambda x: other/self.func(x),self.domain,rtol=self.rtol)
-		return newguy
+		return self._compose(other, opr(operator.div))
 
 	def __pow__(self,pow):
 		""" Raise to a power """
-		try:
-			newcheb = self.cheb.__pow__(pow)
-			newguy = self.__class__(newcheb,rtol=self.rtol)
-			newguy.trim()
-		except ValueError:
-			#we've been given a non pos integer power
-			newguy = self.__class__(lambda x: self.func(x)**pow,self.domain,rtol=self.rtol)
-		return newguy
+		return self._compose(pow, operator.pow)
 
 	def __abs__(self):
 		""" absolute value """
-		newguy = self.__class__(lambda x: np.abs(self.func(x)),self.domain,rtol=self.rtol)
+		newguy = self._new_func(lambda x: np.abs(self._eval(x)))
 		return newguy
 
 	def __neg__(self):
@@ -399,10 +365,10 @@ class Chebfun(object):
 	def range(self):
 		""" try to determine the range for the function """
 		a,b = self.domain
-		fa = float(self.func(a))
-		fb = float(self.func(b))
+		fa = float(self._eval(a))
+		fb = float(self._eval(b))
 		#use the chebfun derivative to find extemums
-		extremums = self.func(self.deriv().introots())
+		extremums = self._eval(self.deriv().introots())
 		exmax = float(extremums.max())
 		exmin = float(extremums.min())
 		return min(exmin,fa,fb),max(exmax,fa,fb)
@@ -448,8 +414,13 @@ class Chebfun(object):
 		""" plot the absolute errors on a log plot """
 		a,b = self.domain
 		xs, ys = self.grid(N)
-		diff = abs(self.func(xs) - ys)
-		return py.semilogy(xs, diff,*args,**kwargs)
+		diff = abs(self.func(xs) - ys) 
+		try:
+			pl =  py.semilogy(xs, diff,*args,**kwargs)
+		except ValueError:
+			pl = None
+			print "Nice! Doesn't look like we have any discernable errors, at all"
+		return pl
 
 	def coefplot(self,*args,**kwargs):
 		""" plot the absolute values of the coefficients on a semilog plot """
@@ -470,7 +441,7 @@ class PiecewiseChebfun(Chebfun):
 	def __init__(self, funcs, edges, imps = None, domain = None, rtol=None):
 		""" Initialize """
 		assert len(funcs) == len(edges)+1, "Number of funcs and interior edges don't match"		
-		assert edges == sorted(edges), "Edges must be in order"
+		assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
 		self.funcs = funcs
 		self.edges = edges
@@ -509,6 +480,8 @@ class PiecewiseChebfun(Chebfun):
 		#initial go at chebfuns
 		self.chebfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
 
+		#need a self.func
+		self._eval = self.__call__
 
 	@property 
 	def nfuncs(self):
@@ -529,13 +502,43 @@ class PiecewiseChebfun(Chebfun):
 
 		return call_on_x(xs)
 
+	def _new_chebfuns(self,chebfuns,edges=None,imps=None,rtol=None):
+		""" Replace the chebfuns """
+		newguy = copy.copy(self)
+		newguy.chebfuns = chebfuns
+
+		if edges:
+			newguy.edges = edges
+		if imps:
+			newguy.imps = imps
+		if rtol:
+			newguy.rtol = rtol
+
+		return newguy
+
+	def _wrap_call(self,func):
+		""" We were called by a wrapped func """
+		newchebs = [ cheb._new_func(lambda x: func(cheb._eval(x))) for cheb in self.chebfuns ]
+		newguy = self._new_chebfuns(newchebs)
+		return newguy
+
+	def __add__(self,other):
+		""" Add  """
+		try:
+			newchebs = [ cheb.__add__(other) for cheb in self.chebfuns ]
+		except NameError:
+			newchebs = [ cheb._new_func(lambda x: cheb._eval(x) + other._eval(x),
+							rtol=min(self.rtol,other.rtol)) for cheb in self.chebfuns ]
+		newguy = self._new_chebfuns(newchebs)
+		return newguy
+
 	def __len__(self):
-		""" get the number of funcs """
-		return self.nfuncs
+		""" get the number of chebfuns """
+		return len(self.funcs)
 
 	def __repr__(self):
 		out = "<{}(nfuncs={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
-					self.__len__(),self.domain,self.rtol,self.naf)
+					self.__len__(), self.domain,self.rtol,self.naf)
 		return out
 
 
@@ -554,3 +557,7 @@ def integ(x,*args,**kwargs):
 	return x.integ(*args,**kwargs)
 
 __all__ = ["Chebfun","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
+
+
+""" TODO:
+	Piecewise chebfuns not working """
