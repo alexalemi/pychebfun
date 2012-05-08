@@ -6,33 +6,18 @@ Chebfun is a work in progress clone of the Matlab Chebfun project"""
 __author__ = "Alex Alemi"
 __version__ = "0.1"
 
-import math, warnings, itertools, copy, operator
+#My imports
+import math, warnings, itertools, copy, operator, sys
 from bisect import bisect, insort
+
 import numpy as np
 import pylab as py
-
 import numpy.polynomial.chebyshev as cheb
-
 from scipy.fftpack import idct, dct, ifft, fft
-
-import sys
-
 Chebyshev = cheb.Chebyshev
 
 #the maximum number of points to try is 2**MAXPOW
 MAXPOW = 15
-
-#Let's overload all the numpy ufuncs
-#  so that if they are called on a chebfun, make a new chebfun
-def wrap(func):
-	def chebfunc(arg):
-		__doc__  = func.__doc__
-		if isinstance(arg,Chebfun):
-			#return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
-			return arg._wrap_call(func)
-		else:
-			return func(arg)
-	return chebfunc
 
 def opr(func):
 	""" reverse the arguments to a function, decorator
@@ -41,19 +26,6 @@ def opr(func):
 		return func(*reversed(args))
 	return rfunc
 
-this_module = sys.modules[__name__]
-#list of numpy functions to overload
-toimport = ["sin","cos","tan","sinh","cosh","tanh",
-				"arcsin","arccos","arctan",
-				"arcsinh","arccosh","arctanh",
-				"exp","exp2","log","log2","log10","expm1","log1p",
-				"sqrt","square","reciprocal","sign","absolute","conj"]
-#make wrapped version of the functions
-mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
-
-#add the funcs to the current name space
-for k,v in mathfuncs.iteritems():
-	setattr(this_module,k,v)
 
 #A simple convergence warning
 class ConvergenceWarning(Warning): pass 
@@ -102,6 +74,8 @@ class Chebfun(object):
 
 		need_construct = True
 
+		#Here I have a somewhat inelegant casing out
+		#	 to allow initilization overloading
 		if isinstance(func, self.__class__):
 			#if we have a chebfun, just copy it
 			self.cheb = func.cheb
@@ -440,6 +414,7 @@ class Chebfun(object):
 		self.plot()
 
 
+
 class PiecewiseChebfun(Chebfun):
 	""" A container for a piecewise chebfun """
 	def __init__(self, funcs, edges, imps = None, domain = None, rtol=None):
@@ -545,6 +520,37 @@ class PiecewiseChebfun(Chebfun):
 					self.__len__(), self.domain,self.rtol,self.naf)
 		return out
 
+
+
+############## BEGIN NUMPY OVERLOADING ##############
+
+#Let's overload all the numpy ufuncs
+#  so that if they are called on a chebfun, make a new chebfun
+def wrap(func):
+	def chebfunc(arg):
+		__doc__  = func.__doc__
+		if isinstance(arg,Chebfun):
+			#return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
+			return arg._wrap_call(func)
+		else:
+			return func(arg)
+	return chebfunc
+
+this_module = sys.modules[__name__]
+#list of numpy functions to overload
+toimport = ["sin","cos","tan","sinh","cosh","tanh",
+				"arcsin","arccos","arctan",
+				"arcsinh","arccosh","arctanh",
+				"exp","exp2","log","log2","log10","expm1","log1p",
+				"sqrt","square","reciprocal","sign","absolute","conj"]
+#make wrapped version of the functions
+mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
+
+#add the funcs to the current name space
+for k,v in mathfuncs.iteritems():
+	setattr(this_module,k,v)
+
+#########  END NUMPY OVERLOADING ###############
 
 
 # a convenience chebfun
