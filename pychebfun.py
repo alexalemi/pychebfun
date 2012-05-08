@@ -35,6 +35,8 @@ def wrap(func):
 	return chebfunc
 
 def opr(func):
+	""" reverse the arguments to a function, decorator
+	Used to help create all of the __r versions of operators"""
 	def rfunc(*args):
 		return func(*reversed(args))
 	return rfunc
@@ -244,6 +246,8 @@ class Chebfun(object):
 		return (max(a,othera), min(b,otherb))
 
 	def _compose(self,other,op):
+		""" Given some other thing and an operator, create a new chebfun
+		by evaluating the two, i.e. function composition """
 		if callable(other):
 			newfunc = lambda x: op(self._eval(x), other(x))
 		else:
@@ -560,4 +564,10 @@ __all__ = ["Chebfun","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
 
 
 """ TODO:
-	Piecewise chebfuns not working """
+	Piecewise chebfuns not working
+
+	they need an appropriate _compose method:
+
+
+	Note: for speed, I could try to work out the _compose method some more to catch
+	cases, i.e. if we can just do the coefficient addition, do it. """
