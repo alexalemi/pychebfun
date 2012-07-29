@@ -11,6 +11,7 @@ import math, warnings, itertools, copy, operator, sys
 from bisect import bisect, insort
 
 import numpy as np
+import scipy as sp
 import pylab as py
 import numpy.polynomial.chebyshev as cheb
 from scipy.fftpack import idct, dct, ifft, fft
@@ -28,27 +29,27 @@ def opr(func):
 
 
 #A simple convergence warning
-class ConvergenceWarning(Warning): pass 
+class ConvergenceWarning(Warning): pass
 class DomainWarning(Warning): pass
 warnings.simplefilter("always")
 
 class Chebfun(object):
 	""" A simple chebfun object, which represents a function defined on a
-	domain with a chebyshev polynomial to within machine precision 
+	domain with a chebyshev polynomial to within machine precision
 	"""
 
 	def __init__(self,func,domain=None,N=None,rtol=None):
 		""" Initilize the chebfun
-	 
+
 				func can be one of
-					* a pyton callable
+					* a python callable
 					* a numpy ufunc
 					* a string (using the numpy namespace)
 					* a ndarray to use as the chebfun coeffs
 					* an existing Chebyshev poly object
-	 
+
 				domain is a tuple (low,high) of the bounds of the function
-	 
+
 				if N is specified, use that number of points
 
 				rtol is the relative tolerance in the coefficients,
@@ -109,7 +110,7 @@ class Chebfun(object):
 		if N is not None:
 			#if the user passed in an N, assume that's what he wants
 			#we need the function on the interval (-1,1)
-			func = lambda x: self.func(self.imapper(x)) 
+			func = lambda x: self.func(self.imapper(x))
 			coeffs = self._fit(func, N)
 			self.cheb = Chebyshev(coeffs,self.domain)
 			need_construct = False
@@ -170,17 +171,17 @@ class Chebfun(object):
 			If not, increment N, if yes, trim as many coefs as possible
 		"""
 		#map to the interval (-1,1)
-		func = lambda x: self.func(self.imapper(x)) 
+		func = lambda x: self.func(self.imapper(x))
 		power = 2
 		done = False
 		while not done:
 			N = 2**power
-	
+
 			coeffs = self._fit(func,N)
 
 			if all(np.abs(coeffs[-2:]) <= np.max(np.abs(coeffs))*self.rtol):
 				done = True
-			
+
 			power += 1
 			if power > MAXPOW and not done:
 				warnings.warn("we've hit the maximum power",ConvergenceWarning)
@@ -248,7 +249,7 @@ class Chebfun(object):
 
 	def __add__(self,other):
 		""" Add  """
-		return self._compose(other, operator.add)	
+		return self._compose(other, operator.add)
 
 	def __radd__(self,other):
 		""" Reversed Add """
@@ -303,7 +304,7 @@ class Chebfun(object):
 		return newguy
 
 	def integ(self,m=1,k=[],lbnd=None):
-		""" Take an integral, m is the number, 
+		""" Take an integral, m is the number,
 			k is an array of constants,
 			lbnd is a lower bound
 		"""
@@ -339,7 +340,7 @@ class Chebfun(object):
 		"""
 		return self.cheb.roots()
 
-	@property 
+	@property
 	def range(self):
 		""" try to determine the range for the function """
 		a,b = self.domain
@@ -350,13 +351,13 @@ class Chebfun(object):
 		exmax = float(extremums.max())
 		exmin = float(extremums.min())
 		return min(exmin,fa,fb),max(exmax,fa,fb)
-	
-	@property 
+
+	@property
 	def coef(self):
 		""" get the coefficients """
 		return self.cheb.coef
 
-	@property 
+	@property
 	def scl(self):
 		""" get the *scale* of the chebfun, i.e. its largest coefficient """
 		return np.abs(self.coef).max()
@@ -392,7 +393,7 @@ class Chebfun(object):
 		""" plot the absolute errors on a log plot """
 		a,b = self.domain
 		xs, ys = self.grid(N)
-		diff = abs(self.func(xs) - ys) 
+		diff = abs(self.func(xs) - ys)
 		try:
 			pl =  py.semilogy(xs, diff,*args,**kwargs)
 		except ValueError:
@@ -419,7 +420,7 @@ class PiecewiseChebfun(Chebfun):
 	""" A container for a piecewise chebfun """
 	def __init__(self, funcs, edges, imps = None, domain = None, rtol=None):
 		""" Initialize """
-		assert len(funcs) == len(edges)+1, "Number of funcs and interior edges don't match"		
+		assert len(funcs) == len(edges)+1, "Number of funcs and interior edges don't match"
 		assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
 		self.funcs = funcs
@@ -462,7 +463,7 @@ class PiecewiseChebfun(Chebfun):
 		#need a self.func
 		self._eval = self.__call__
 
-	@property 
+	@property
 	def nfuncs(self):
 		""" number of functions """
 		return len(self.funcs)
@@ -574,6 +575,7 @@ __all__ = ["Chebfun","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
 
 	they need an appropriate _compose method:
 
+	think about ChebOps
 
 	Note: for speed, I could try to work out the _compose method some more to catch
 	cases, i.e. if we can just do the coefficient addition, do it. """
