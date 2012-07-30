@@ -81,7 +81,7 @@ ToDo
 
 * Implement piecewise-chebfuns
 * try to handle infinite domains
-* try to make chepops
+* try to make chebops
 
 
 
