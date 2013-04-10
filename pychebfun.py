@@ -4,21 +4,38 @@
 Chebfun is a work in progress clone of the Matlab Chebfun project"""
 
 __author__ = "Alex Alemi"
-__version__ = "0.1"
+__version__ = "0.2"
 
 #My imports
-import math, warnings, itertools, copy, operator, sys
-from bisect import bisect, insort
+import warnings
+import sys
+import math
+import copy
+import operator
+import bisect
 
 import numpy as np
-import scipy as sp
-import pylab as py
+# import scipy as sp
+import matplotlib.pyplot as plt
+
+#use the builting numpy polynomial
 import numpy.polynomial.chebyshev as cheb
-from scipy.fftpack import idct, dct, ifft, fft
+from scipy.fftpack import idct, ifft
+from scipy.misc import derivative
+
+# Rename the Chebyshev polynomial in case I want
+# to override it later, or expand it
 Chebyshev = cheb.Chebyshev
+
+#----------------------
+# SETTINGS
+#----------------------
 
 #the maximum number of points to try is 2**MAXPOW
 MAXPOW = 15
+NAF_CUTOFF = 128
+DEFAULT_TOL = 3.*np.finfo(np.float).eps
+
 
 def opr(func):
     """ reverse the arguments to a function, decorator
@@ -33,19 +50,19 @@ class ConvergenceWarning(Warning): pass
 class DomainWarning(Warning): pass
 warnings.simplefilter("always")
 
-class Chebfun(object):
-    """ A simple chebfun object, which represents a function defined on a
+class Cheb(object):
+    """ A simple cheb object, which represents a function defined on a
     domain with a chebyshev polynomial to within machine precision
-    """
 
+    """
     def __init__(self,func,domain=None,N=None,rtol=None):
-        """ Initilize the chebfun
+        """ Initilize the cheb
 
                 func can be one of
                     * a python callable
                     * a numpy ufunc
                     * a string (using the numpy namespace)
-                    * a ndarray to use as the chebfun coeffs
+                    * a ndarray to use as the cheb coeffs
                     * an existing Chebyshev poly object
 
                 domain is a tuple (low,high) of the bounds of the function
@@ -53,13 +70,11 @@ class Chebfun(object):
                 if N is specified, use that number of points
 
                 rtol is the relative tolerance in the coefficients,
-                should be approximately the accuracy of the resulting chebfun
+                should be approximately the accuracy of the resulting cheb
         """
         self.mapper = lambda x: x
         self.imapper = lambda x: x
         self.domain = (-1,1)
-        #tells if we've had problems
-        self.naf = False
 
         if domain is not None:
             #if we were passed a domain
@@ -71,7 +86,7 @@ class Chebfun(object):
             self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
         #by default use numpy float tolerance
-        self.rtol = rtol or 3.*np.finfo(np.float).eps
+        self.rtol = rtol or DEFAULT_TOL
 
         need_construct = True
 
@@ -118,7 +133,7 @@ class Chebfun(object):
         if need_construct:
             self.construct()
 
-        #this allows me to switch between keeping the funcs and using the chebfun
+        #this allows me to switch between keeping the funcs and using the cheb
         #to evaluate the deeper things
         self._eval = self.__call__
 
@@ -185,11 +200,14 @@ class Chebfun(object):
             power += 1
             if power > MAXPOW and not done:
                 warnings.warn("we've hit the maximum power",ConvergenceWarning)
-                self.naf = True
                 done = True
 
         coeffs = self._trim_arr(coeffs)
         self.cheb = Chebyshev(coeffs,self.domain)
+
+    @property
+    def naf(self):
+        return self.__len__() > NAF_CUTOFF
 
     def _trim_arr(self,arr,rtol=None):
         """ trim an array by rtol """
@@ -221,7 +239,7 @@ class Chebfun(object):
         return (max(a,othera), min(b,otherb))
 
     def _compose(self,other,op):
-        """ Given some other thing and an operator, create a new chebfun
+        """ Given some other thing and an operator, create a new cheb
         by evaluating the two, i.e. function composition """
         if callable(other):
             newfunc = lambda x: op(self._eval(x), other(x))
@@ -235,8 +253,8 @@ class Chebfun(object):
 
     def __call__(self,arg):
         """ make it behave like a function """
-        if isinstance(arg,Chebfun):
-            # we have another chebfun here
+        if isinstance(arg,Cheb):
+            # we have another cheb here
             mya,myb = self.domain
             othera, otherb = arg.range
             assert mya <= othera and myb >= otherb, "Domain must include range of other function"
@@ -327,7 +345,7 @@ class Chebfun(object):
         return result *0.5 * (b-a)
 
     def norm(self):
-        """ Get the norm of our chebfun """
+        """ Get the norm of our cheb """
         return math.sqrt((self.__pow__(2)).quad())
 
     def dot(self,other):
@@ -346,7 +364,7 @@ class Chebfun(object):
         a,b = self.domain
         fa = float(self._eval(a))
         fb = float(self._eval(b))
-        #use the chebfun derivative to find extemums
+        #use the cheb derivative to find extemums
         extremums = self._eval(self.deriv().introots())
         if extremums:
             exmax = float(extremums.max())
@@ -361,7 +379,7 @@ class Chebfun(object):
 
     @property
     def scl(self):
-        """ get the *scale* of the chebfun, i.e. its largest coefficient """
+        """ get the *scale* of the cheb, i.e. its largest coefficient """
         return np.abs(self.coef).max()
 
     def introots(self):
@@ -376,7 +394,7 @@ class Chebfun(object):
         return len(self.cheb)
 
     def grid(self,N=1000):
-        """ Return the chebfun evaluated on a discrete lattice
+        """ Return the cheb evaluated on a discrete lattice
             returns both the grid, and the evaluations
         """
         a,b = self.domain
@@ -384,11 +402,11 @@ class Chebfun(object):
         return (xs, self.__call__(xs))
 
     def plot(self,N=1000,*args,**kwargs):
-        """ Plot the chebfun on its domain """
+        """ Plot the cheb on its domain """
         a,b = self.domain
         xs,ys = self.grid(N)
-        pl = py.plot(xs,ys,*args,**kwargs)
-        py.xlim(self.domain)
+        pl = plt.plot(xs,ys,*args,**kwargs)
+        plt.xlim(self.domain)
         return pl
 
     def errplot(self,N=1000,*args,**kwargs):
@@ -397,7 +415,7 @@ class Chebfun(object):
         xs, ys = self.grid(N)
         diff = abs(self.func(xs) - ys)
         try:
-            pl =  py.semilogy(xs, diff,*args,**kwargs)
+            pl =  plt.semilogy(xs, diff,*args,**kwargs)
         except ValueError:
             pl = None
             print "Nice! Doesn't look like we have any discernable errors, at all"
@@ -405,7 +423,7 @@ class Chebfun(object):
 
     def coefplot(self,*args,**kwargs):
         """ plot the absolute values of the coefficients on a semilog plot """
-        return py.semilogy(abs(self.cheb.coef),*args,**kwargs)
+        return plt.semilogy(abs(self.cheb.coef),*args,**kwargs)
 
     def __repr__(self):
         out = "<{}(N={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
@@ -418,21 +436,20 @@ class Chebfun(object):
 
 
 
-class PiecewiseChebfun(Chebfun):
-    """ A container for a piecewise chebfun """
-    def __init__(self, funcs, edges, imps = None, domain = None, rtol=None):
+class Chebfun(Cheb):
+    """ A container for a full chebfun, with piecewise bits """
+    def __init__(self, chebs, edges, imps = None, domain = None, rtol=None):
         """ Initialize """
-        assert len(funcs) == len(edges)+1, "Number of funcs and interior edges don't match"
+        assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
         assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
-        self.funcs = funcs
+        self.chebs = chebs
         self.edges = edges
 
         self.mapper = lambda x: x
         self.imapper = lambda x: x
         self.domain = (-1,1)
         #tells if we've had problems
-        self.naf = False
 
         if domain is not None:
             #if we were passed a domain
@@ -444,7 +461,7 @@ class PiecewiseChebfun(Chebfun):
             self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
         #by default use numpy float tolerance
-        self.rtol = rtol or 3.*np.finfo(np.float).eps
+        self.rtol = rtol or DEFAULT_TOL
 
         if imps is None:
             # by default make the values at the breaks the average on either side
@@ -524,6 +541,34 @@ class PiecewiseChebfun(Chebfun):
         return out
 
 
+def chebfun(func, domain=None, N=None, rtol=None):
+    """ Try to build a chebfun """
+
+
+def detectedge(a,c,f):
+    """ Try to detect an edge """
+    edge = None
+    xs = np.linspace(a,c,50)
+
+    try:
+        fs = f(xs)
+    except TypeError:
+        fs = np.vectorize(f)(xs)
+    #need to estimate derivatives
+
+    fps = np.abs(np.array([ derivative(fs,x,n=1,dx=(2e-16)**(1./2),order=15) for x in xs ]))
+    fpps = np.abs(np.array([ derivative(fs,x,n=2,dx=(2e-16)**(1./3),order=15) for x in xs ]))
+    fppps = np.abs(np.array([ derivative(fs,x,n=3,dx=(2e-16)**(1./4),order=15) for x in xs ]))
+    fpppps = np.abs(np.array([ derivative(fs,x,n=4,dx=(2e-16)**(1./5),order=15) for x in xs ]))
+    b = xs[fpppps.argmax()]
+    dmax = 4
+
+    while abs(a-c) > DEFAULT_TOL:
+        a = xs[b-1]
+        c = xs[b+1]
+        newxs = np.linspace(a,c,15)
+
+
 
 ############## BEGIN NUMPY OVERLOADING ##############
 
@@ -532,7 +577,7 @@ class PiecewiseChebfun(Chebfun):
 def wrap(func):
     def chebfunc(arg):
         __doc__  = func.__doc__
-        if isinstance(arg,Chebfun):
+        if isinstance(arg,Cheb):
             #return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
             return arg._wrap_call(func)
         else:
@@ -557,11 +602,11 @@ for k,v in mathfuncs.iteritems():
 
 
 # a convenience chebfun
-x = Chebfun("x")
+x = Cheb("x")
 
 def xdom(domain=(-1,1),*args,**kwargs):
     """ Convenience function to get an identity on whatever interval you want"""
-    return Chebfun("x",domain=domain,*args,**kwargs)
+    return Cheb("x",domain=domain,*args,**kwargs)
 
 def deriv(x,*args,**kwargs):
     return x.deriv(*args,**kwargs)
@@ -569,7 +614,7 @@ def deriv(x,*args,**kwargs):
 def integ(x,*args,**kwargs):
     return x.integ(*args,**kwargs)
 
-__all__ = ["Chebfun","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
+__all__ = ["Cheb","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
 
 
 """ TODO:
