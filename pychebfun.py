@@ -13,6 +13,10 @@ import math
 import copy
 import operator
 import bisect
+import logging
+logging.info("Inside PyChebFun")
+logger = logging.getLogger('pychebfun')
+logger.setLevel(logging.DEBUG)
 
 import numpy as np
 # import scipy as sp
@@ -44,6 +48,16 @@ def opr(func):
         return func(*reversed(args))
     return rfunc
 
+def castscalar(method):
+    """ Decorator to ensure scalars work like functions as arguments
+        from: https://github.com/pychebfun/pychebfun/blob/master/pychebfun/chebfun.py#L24-L33
+    """
+    @wraps(method)
+    def new_method(self, other):
+        if np.isscalar(other):
+            other = lambda x: other
+        return method(self, other)
+    return new_method
 
 #A simple convergence warning
 class ConvergenceWarning(Warning): pass
@@ -185,6 +199,7 @@ class Cheb(object):
 
             If not, increment N, if yes, trim as many coefs as possible
         """
+        logger.debug("Inside Construct")
         #map to the interval (-1,1)
         func = lambda x: self.func(self.imapper(x))
         power = 2
@@ -258,8 +273,8 @@ class Cheb(object):
             mya,myb = self.domain
             othera, otherb = arg.range
             assert mya <= othera and myb >= otherb, "Domain must include range of other function"
-
             return self._new_func(lambda x: self._eval(arg._eval(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
+        #Check that we are still in the domain
         a,b = self.domain
         if np.any( (arg < a) + (arg > b) ):
             warnings.warn("Evaluating outside the domain", DomainWarning)
