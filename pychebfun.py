@@ -18,18 +18,12 @@ logging.info("Inside PyChebFun")
 logger = logging.getLogger('pychebfun')
 logger.setLevel(logging.DEBUG)
 
+import tools
+
 import numpy as np
 # import scipy as sp
 import matplotlib.pyplot as plt
 
-#use the builting numpy polynomial
-import numpy.polynomial.chebyshev as cheb
-from scipy.fftpack import idct, ifft
-from scipy.misc import derivative
-
-# Rename the Chebyshev polynomial in case I want
-# to override it later, or expand it
-Chebyshev = cheb.Chebyshev
 
 #----------------------
 # SETTINGS
@@ -59,6 +53,10 @@ def castscalar(method):
         return method(self, other)
     return new_method
 
+NP_OVERLOAD = set(("arccos", "arccosh", "arcsin", "arcsinh", "arctan", "arctanh", "cos",
+     "sin", "tan", "cosh", "sinh", "tanh", "exp", "exp2", "expm1", "log", "log2", "log1p",
+     "sqrt", "ceil", "trunc", "fabs", "floor", ))
+
 #A simple convergence warning
 class ConvergenceWarning(Warning): pass
 class DomainWarning(Warning): pass
@@ -77,7 +75,7 @@ class Cheb(object):
                     * a numpy ufunc
                     * a string (using the numpy namespace)
                     * a ndarray to use as the cheb coeffs
-                    * an existing Chebyshev poly object
+                    * an existing tools.ChebyshevPolynomial poly object
 
                 domain is a tuple (low,high) of the bounds of the function
 
@@ -112,7 +110,7 @@ class Cheb(object):
             self.domain = func.domain
             self.rtol = func.rtol
             need_construct = False
-        elif isinstance(func,Chebyshev):
+        elif isinstance(func,tools.ChebyshevPolynomial):
             #we have a chebyshev poly
             self.cheb = func
             self.func = self.cheb
@@ -121,7 +119,7 @@ class Cheb(object):
         elif isinstance(func,np.ndarray):
             #use the ndarray as our coefficients
             arr = func
-            self.cheb = Chebyshev(arr,domain=self.domain)
+            self.cheb = tools.ChebyshevPolynomial(arr,domain=self.domain)
             self.func = self.cheb
             need_construct = False
         elif isinstance(func,str):
@@ -140,8 +138,8 @@ class Cheb(object):
             #if the user passed in an N, assume that's what he wants
             #we need the function on the interval (-1,1)
             func = lambda x: self.func(self.imapper(x))
-            coeffs = self._fit(func, N)
-            self.cheb = Chebyshev(coeffs,self.domain)
+            coeffs = tools.fit(func, N)
+            self.cheb = tools.ChebyshevPolynomial(coeffs,self.domain)
             need_construct = False
 
         if need_construct:
@@ -151,42 +149,6 @@ class Cheb(object):
         #to evaluate the deeper things
         self._eval = self.__call__
 
-    def _fit_builtin(self,func,N):
-        """ Return the chebyshev coefficients using the builtin chebfit """
-        pts = cheb.chebpts2(N)
-        y = func(pts)
-        coeffs = cheb.chebfit(pts,y,N)
-        return coeffs
-
-    def _fit_idct(self,func,N):
-        """ Return the chebyshev coefficients using the idct """
-        pts = -cheb.chebpts1(N)
-        y = func(pts)
-        coeffs = idct(y,type=3)/N
-        coeffs[0] /= 2.
-        coeffs[-1] /= 2.
-        return coeffs
-
-    def _fit_fft(self,func,N):
-        """ Get the chebyshev coefficients using fft
-            inspired by: http://www.scientificpython.net/1/post/2012/4/the-fast-chebyshev-transform.html
-            *Doesn't seem to work right now*
-        """
-        pts = cheb.chebpts2(N)
-        y = func(pts)
-        A = y[:,np.newaxis]
-        m = np.size(y,0)
-        k = m-1-np.arange(m-1)
-        V = np.vstack((A[0:m-1,:],A[k,:]))
-        F = ifft(V,n=None,axis=0)
-        B = np.vstack((F[0,:],2*F[1:m-1,:],F[m-1,:]))
-
-        if A.dtype != 'complex':
-            return np.real(B)
-        return B
-
-    #set the default fit function
-    _fit = _fit_idct
 
     def construct(self):
         """ Construct the chebyshev polynomial
@@ -207,7 +169,7 @@ class Cheb(object):
         while not done:
             N = 2**power
 
-            coeffs = self._fit(func,N)
+            coeffs = tools.fit(func,N)
 
             if all(np.abs(coeffs[-2:]) <= np.max(np.abs(coeffs))*self.rtol):
                 done = True
@@ -218,7 +180,7 @@ class Cheb(object):
                 done = True
 
         coeffs = self._trim_arr(coeffs)
-        self.cheb = Chebyshev(coeffs,self.domain)
+        self.cheb = tools.ChebyshevPolynomial(coeffs,self.domain)
 
     @property
     def naf(self):
@@ -229,11 +191,11 @@ class Cheb(object):
         if rtol is None:
             rtol = self.rtol
 
-        return cheb.chebtrim(arr,max(abs(arr))*rtol)
+        return tools.Chebyshev.chebtrim(arr,max(abs(arr))*rtol)
 
     def trim(self):
         coeffs = self._trim_arr(self.cheb.coef)
-        self.cheb = Chebyshev(coeffs,domain=self.domain)
+        self.cheb = tools.ChebyshevPolynomial(coeffs,domain=self.domain)
 
     def _new_func(self,func,rtol=None,domain=None):
         """ Replace the function with another function """
@@ -449,6 +411,17 @@ class Cheb(object):
         """ Have the plot be the representation in ipython notebook """
         self.plot()
 
+    def __getattr__(self,attr):
+        """ Allow numpy overloading, called if something else is broken
+            A bit hackish, but avoids poluting the namespace for the Chebfun """
+        if attr in NP_OVERLOAD:
+            ufunc = np.__getattribute__(attr)
+            def func():
+                return self._new_func( lambda x: ufunc( self._eval(x) ) )
+            func.__name__ = attr
+            func.__doc__  = "wraps numpy ufunc: {}".format(attr)
+            return func
+        return self.__getattribute__(attr)
 
 
 class Chebfun(Cheb):
@@ -560,28 +533,6 @@ def chebfun(func, domain=None, N=None, rtol=None):
     """ Try to build a chebfun """
 
 
-def detectedge(a,c,f):
-    """ Try to detect an edge """
-    edge = None
-    xs = np.linspace(a,c,50)
-
-    try:
-        fs = f(xs)
-    except TypeError:
-        fs = np.vectorize(f)(xs)
-    #need to estimate derivatives
-
-    fps = np.abs(np.array([ derivative(fs,x,n=1,dx=(2e-16)**(1./2),order=15) for x in xs ]))
-    fpps = np.abs(np.array([ derivative(fs,x,n=2,dx=(2e-16)**(1./3),order=15) for x in xs ]))
-    fppps = np.abs(np.array([ derivative(fs,x,n=3,dx=(2e-16)**(1./4),order=15) for x in xs ]))
-    fpppps = np.abs(np.array([ derivative(fs,x,n=4,dx=(2e-16)**(1./5),order=15) for x in xs ]))
-    b = xs[fpppps.argmax()]
-    dmax = 4
-
-    while abs(a-c) > DEFAULT_TOL:
-        a = xs[b-1]
-        c = xs[b+1]
-        newxs = np.linspace(a,c,15)
 
 
 
@@ -589,29 +540,29 @@ def detectedge(a,c,f):
 
 #Let's overload all the numpy ufuncs
 #  so that if they are called on a chebfun, make a new chebfun
-def wrap(func):
-    def chebfunc(arg):
-        __doc__  = func.__doc__
-        if isinstance(arg,Cheb):
-            #return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
-            return arg._wrap_call(func)
-        else:
-            return func(arg)
-    return chebfunc
+# def wrap(func):
+#     def chebfunc(arg):
+#         __doc__  = func.__doc__
+#         if isinstance(arg,Cheb):
+#             #return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
+#             return arg._wrap_call(func)
+#         else:
+#             return func(arg)
+#     return chebfunc
 
-this_module = sys.modules[__name__]
-#list of numpy functions to overload
-toimport = ["sin","cos","tan","sinh","cosh","tanh",
-                "arcsin","arccos","arctan",
-                "arcsinh","arccosh","arctanh",
-                "exp","exp2","log","log2","log10","expm1","log1p",
-                "sqrt","square","reciprocal","sign","absolute","conj"]
-#make wrapped version of the functions
-mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
+# this_module = sys.modules[__name__]
+# #list of numpy functions to overload
+# toimport = ["sin","cos","tan","sinh","cosh","tanh",
+#                 "arcsin","arccos","arctan",
+#                 "arcsinh","arccosh","arctanh",
+#                 "exp","exp2","log","log2","log10","expm1","log1p",
+#                 "sqrt","square","reciprocal","sign","absolute","conj"]
+# #make wrapped version of the functions
+# mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
 
-#add the funcs to the current name space
-for k,v in mathfuncs.iteritems():
-    setattr(this_module,k,v)
+# #add the funcs to the current name space
+# for k,v in mathfuncs.iteritems():
+#     setattr(this_module,k,v)
 
 #########  END NUMPY OVERLOADING ###############
 
@@ -629,7 +580,7 @@ def deriv(x,*args,**kwargs):
 def integ(x,*args,**kwargs):
     return x.integ(*args,**kwargs)
 
-__all__ = ["Cheb","wrap","x","xdom","deriv","integ"] + mathfuncs.keys()
+__all__ = ["Cheb","x","xdom","deriv","integ"] # + mathfuncs.keys()
 
 
 """ TODO:
