@@ -22,31 +22,31 @@ def test_explicit_cos():
     f = Cheb('cos(20*x)')
     xs = np.random.uniform(-1,1,1000)
     print "Testing at random points "
-    np.testing.assert_almost_equal(cos(20*xs),f(xs))
+    np.testing.assert_almost_equal(np.cos(20*xs),f(xs))
 
 def test_implied_cos():
     """ See whether we can make implied functions """
     print "Testing implicit construction"
-    f = cos(20*x)
+    f = np.cos(20*x)
     xs = np.random.uniform(-1,1,1000)
     print "testing at random points"
-    np.testing.assert_almost_equal(cos(20*xs),f(xs))
+    np.testing.assert_almost_equal(np.cos(20*xs),f(xs))
 
 def test_lambda():
     """ Test construction with a callable """
     print "Testing creation with anonymous function"
-    f = Cheb(lambda x: cos(20*x))
+    f = Cheb(lambda x: np.cos(20*x))
     xs = np.random.uniform(-1,1,1000)
     print "Testing at random points "
-    np.testing.assert_almost_equal(cos(20*xs),f(xs))
+    np.testing.assert_almost_equal(np.cos(20*xs),f(xs))
 
 def test_cos_quad():
     """ Test quadrature """
     print "Testing quad for cos(20*x) "
-    f = cos(20*x)
+    f = np.cos(20*x)
     cheb_quad = f.quad()
     # traditional_quad,err = quad(lambda x: cos(20*x), -1,1)
-    analytical_quad = sin(20.)/10.
+    analytical_quad = np.sin(20.)/10.
     print "Cheb quad: ", cheb_quad
     print "analytical: ", analytical_quad
     np.testing.assert_almost_equal(cheb_quad,analytical_quad)
@@ -59,7 +59,7 @@ def test_bessel_zeros():
     np.testing.assert_allclose(roots,real_roots)
 
 
-def test_composition():
+def test_evaluation():
     """ Test chebfun composition """
     xx = Cheb('x')
     f = lambda x: 1./(1+25*x**2)

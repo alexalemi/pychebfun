@@ -1,3 +1,8 @@
+import logging
+logging.info("Inside tools")
+logger = logging.getLogger('tools')
+logger.setLevel(logging.DEBUG)
+
 import numpy as np
 #get common numpy functions in namespace
 from numpy import inf, isnan, diff, arange, mean, abs, max, ones, linspace, zeros, isinf, array, r_
@@ -8,7 +13,9 @@ ChebyshevPolynomial = np_chebyshev.Chebyshev
 from scipy.fftpack import idct, ifft
 
 EPS = np.finfo(np.float).eps
-DEFAULT_TOL = 10.*EPS
+MAXPOW = 15
+NAF_CUTOFF = 128
+DEFAULT_TOL = 3.*EPS
 
 def fit_builtin(func,N):
     """ Return the chebyshev coefficients using the builtin chebfit """
@@ -46,6 +53,55 @@ def fit_fft(func,N):
 
 #Set default
 fit = fit_idct
+
+def gen_mapper(a,b):
+    """ Returns a function that mapps from (a,b) to (-1,1) """
+    return lambda x: (2.*x - (a+b))/(b-a)
+
+def gen_imapper(a,b):
+    """ Returns a function that maps from (-1,1) to (a,b) """
+    return lambda x: 0.5*(a+b) + 0.5*(b-a)*x
+
+def trim_arr(arr,rtol=DEFAULT_TOL):
+    """ trim an array by rtol """
+    return Chebyshev.chebtrim(arr,max(abs(arr))*rtol)
+
+def construct(func,a,b,rtol=DEFAULT_TOL):
+    """ Construct the chebyshev polynomial
+
+        Starts with N=4 points and evaluates the function on a set of
+        chebyshev points, determining the chebyshev coefficients
+
+        At that point, check to see if the last two coefficients are small
+        compared to the largest
+
+        If not, increment N, if yes, trim as many coefs as possible
+    """
+    logger.debug("Inside Construct")
+    #map to the interval (-1,1)
+    imapper = gen_imapper(a,b)
+    mapped_func = lambda x: func(imapper(x))
+    power = 2
+    done = False
+    while not done:
+        N = 2**power
+
+        coeffs = fit(mapped_func,N)
+        if all(abs(coeffs[-2:]) <= max(abs(coeffs))*rtol):
+            done = True
+
+        power += 1
+        if power > MAXPOW and not done:
+            warnings.warn("we've hit the maximum power",ConvergenceWarning)
+            done = True
+
+    coeffs = trim_arr(coeffs)
+    poly = ChebyshevPolynomial(coeffs,(a,b))
+    return poly
+
+########################################################
+## Chebfun utility commands, translated from the matlab
+########################################################
 
 def default_vertical_scale(f,a,b):
     """ Generate a guess at the vertical scale """

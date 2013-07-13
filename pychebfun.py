@@ -13,26 +13,20 @@ import math
 import copy
 import operator
 import bisect
-import logging
-logging.info("Inside PyChebFun")
-logger = logging.getLogger('pychebfun')
-logger.setLevel(logging.DEBUG)
-
-import tools
 
 import numpy as np
 # import scipy as sp
 import matplotlib.pyplot as plt
 
+import tools
+logger = tools.logging.getLogger('pychebfun')
 
 #----------------------
 # SETTINGS
 #----------------------
 
-#the maximum number of points to try is 2**MAXPOW
-MAXPOW = 15
 NAF_CUTOFF = 128
-DEFAULT_TOL = 3.*np.finfo(np.float).eps
+DEFAULT_TOL = tools.DEFAULT_TOL
 
 
 def opr(func):
@@ -93,9 +87,9 @@ class Cheb(object):
             a,b = domain
             self.domain = (a,b)
             #mapper maps from (a,b) to (-1,1)
-            self.mapper = lambda x: (2*x-(a+b))/(b-a)
+            self.mapper = tools.gen_mapper(a,b)
             #imapper maps from (-1,1) to (a,b)
-            self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
+            self.imapper = tools.gen_imapper(a,b)
 
         #by default use numpy float tolerance
         self.rtol = rtol or DEFAULT_TOL
@@ -106,21 +100,23 @@ class Cheb(object):
         #    to allow initilization overloading
         if isinstance(func, self.__class__):
             #if we have a chebfun, just copy it
-            self.cheb = func.cheb
+            self.poly = func.cheb
             self.domain = func.domain
             self.rtol = func.rtol
+            self.func = func.func
             need_construct = False
         elif isinstance(func,tools.ChebyshevPolynomial):
             #we have a chebyshev poly
-            self.cheb = func
-            self.func = self.cheb
-            self.domain = tuple(self.cheb.domain)
+            self.poly = func
+            self.func = self.poly
+            self.domain = tuple(self.poly.domain)
+            self.func = self.__call__
             need_construct = False
         elif isinstance(func,np.ndarray):
             #use the ndarray as our coefficients
             arr = func
-            self.cheb = tools.ChebyshevPolynomial(arr,domain=self.domain)
-            self.func = self.cheb
+            self.poly = tools.ChebyshevPolynomial(arr,domain=self.domain)
+            self.func = self.poly
             need_construct = False
         elif isinstance(func,str):
             #we have a string, eval it in the numpy namespace
@@ -130,7 +126,14 @@ class Cheb(object):
             self.func = func
         elif callable(func):
             #try to vectorize a general callable
-            self.func = np.vectorize(func)
+            # first see if we can use it anyway
+            a,b = self.domain
+            xs = (b-a)*np.random.rand(2) + a
+            try:
+                func(x)
+                self.func = func
+            except:
+                self.func = np.vectorize(func)
         else:
             raise TypeError, "I don't understand your func: {}".format(func)
 
@@ -139,63 +142,25 @@ class Cheb(object):
             #we need the function on the interval (-1,1)
             func = lambda x: self.func(self.imapper(x))
             coeffs = tools.fit(func, N)
-            self.cheb = tools.ChebyshevPolynomial(coeffs,self.domain)
+            self.poly = tools.ChebyshevPolynomial(coeffs,self.domain)
             need_construct = False
 
         if need_construct:
-            self.construct()
+            a,b = self.domain
+            poly = tools.construct(self.func,a,b,rtol=self.rtol)
+            self.poly = poly
 
         #this allows me to switch between keeping the funcs and using the cheb
         #to evaluate the deeper things
         self._eval = self.__call__
 
-
-    def construct(self):
-        """ Construct the chebyshev polynomial
-
-            Starts with N=4 points and evaluates the function on a set of
-            chebyshev points, determining the chebyshev coefficients
-
-            At that point, check to see if the last two coefficients are small
-            compared to the largest
-
-            If not, increment N, if yes, trim as many coefs as possible
-        """
-        logger.debug("Inside Construct")
-        #map to the interval (-1,1)
-        func = lambda x: self.func(self.imapper(x))
-        power = 2
-        done = False
-        while not done:
-            N = 2**power
-
-            coeffs = tools.fit(func,N)
-
-            if all(np.abs(coeffs[-2:]) <= np.max(np.abs(coeffs))*self.rtol):
-                done = True
-
-            power += 1
-            if power > MAXPOW and not done:
-                warnings.warn("we've hit the maximum power",ConvergenceWarning)
-                done = True
-
-        coeffs = self._trim_arr(coeffs)
-        self.cheb = tools.ChebyshevPolynomial(coeffs,self.domain)
-
     @property
     def naf(self):
         return self.__len__() > NAF_CUTOFF
 
-    def _trim_arr(self,arr,rtol=None):
-        """ trim an array by rtol """
-        if rtol is None:
-            rtol = self.rtol
-
-        return tools.Chebyshev.chebtrim(arr,max(abs(arr))*rtol)
-
     def trim(self):
-        coeffs = self._trim_arr(self.cheb.coef)
-        self.cheb = tools.ChebyshevPolynomial(coeffs,domain=self.domain)
+        coeffs = tools.trim_arr(self.poly.coef)
+        self.poly = tools.ChebyshevPolynomial(coeffs,domain=self.domain)
 
     def _new_func(self,func,rtol=None,domain=None):
         """ Replace the function with another function """
@@ -240,60 +205,11 @@ class Cheb(object):
         a,b = self.domain
         if np.any( (arg < a) + (arg > b) ):
             warnings.warn("Evaluating outside the domain", DomainWarning)
-        return self.cheb(arg)
-
-    def __add__(self,other):
-        """ Add  """
-        return self._compose(other, operator.add)
-
-    def __radd__(self,other):
-        """ Reversed Add """
-        return self._compose(other, opr(operator.add))
-
-    def __sub__(self,other):
-        """ Subtract  """
-        return self._compose(other, operator.sub)
-
-    def __rsub__(self,other):
-        """ Reversed Subtract """
-        return self._compose(other, opr(operator.sub))
-
-    def __mul__(self,other):
-        """ Multiply """
-        return self._compose(other, operator.mul)
-
-    def __rmul__(self,other):
-        """ Reverse Multiply """
-        return self._compose(other, opr(operator.mul))
-
-    def __div__(self,other):
-        """ Division: makes a new chebfun """
-        return self._compose(other, operator.div)
-
-    def __rdiv__(self,other):
-        """ Reversed divide """
-        return self._compose(other, opr(operator.div))
-
-    def __pow__(self,pow):
-        """ Raise to a power """
-        return self._compose(pow, operator.pow)
-
-    def __abs__(self):
-        """ absolute value """
-        newguy = self._new_func(lambda x: np.abs(self._eval(x)))
-        return newguy
-
-    def __neg__(self):
-        """ negative """
-        return self.__mul__(-1)
-
-    def __pos__(self):
-        """ pos returns self """
-        return self
+        return self.poly(arg)
 
     def deriv(self,m=1):
         """ Take a derivative, m is the order """
-        newcheb = self.cheb.deriv(m)
+        newcheb = self.poly.deriv(m)
         newguy = self.__class__(newcheb,rtol=self.rtol)
         newguy.trim()
         return newguy
@@ -308,13 +224,13 @@ class Cheb(object):
             lbnd = 0
         else:
             lbnd = a
-        newcheb = self.cheb.integ(m,k=k,lbnd=lbnd)
+        newcheb = self.poly.integ(m,k=k,lbnd=lbnd)
         newguy = self.__class__(newcheb,rtol=self.rtol)
         return newguy
 
     def quad(self):
         """ Try to take the integral """
-        goodcoeffs = self.cheb.coef[0::2]
+        goodcoeffs = self.poly.coef[0::2]
         weights = np.fromfunction(lambda x: 2./(1-(2*x)**2), goodcoeffs.shape)
         result =  sum(weights*goodcoeffs)
         #need to multiply by domain
@@ -333,7 +249,7 @@ class Cheb(object):
         """ Get all of the roots,
             note that a lot of these are outside the domain
         """
-        return self.cheb.roots()
+        return self.poly.roots()
 
     @property
     def range(self):
@@ -352,7 +268,7 @@ class Cheb(object):
     @property
     def coef(self):
         """ get the coefficients """
-        return self.cheb.coef
+        return self.poly.coef
 
     @property
     def scl(self):
@@ -368,7 +284,7 @@ class Cheb(object):
 
     def __len__(self):
         """ Len gives the number of terms """
-        return len(self.cheb)
+        return len(self.poly)
 
     def grid(self,N=1000):
         """ Return the cheb evaluated on a discrete lattice
@@ -400,7 +316,7 @@ class Cheb(object):
 
     def coefplot(self,*args,**kwargs):
         """ plot the absolute values of the coefficients on a semilog plot """
-        return plt.semilogy(abs(self.cheb.coef),*args,**kwargs)
+        return plt.semilogy(abs(self.poly.coef),*args,**kwargs)
 
     def __repr__(self):
         out = "<{}(N={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
@@ -423,6 +339,45 @@ class Cheb(object):
             return func
         return self.__getattribute__(attr)
 
+    def __add__(self,other):
+        """ Add  """
+        return self._compose(other, operator.add)
+    def __radd__(self,other):
+        """ Reversed Add """
+        return self._compose(other, opr(operator.add))
+    def __sub__(self,other):
+        """ Subtract  """
+        return self._compose(other, operator.sub)
+    def __rsub__(self,other):
+        """ Reversed Subtract """
+        return self._compose(other, opr(operator.sub))
+    def __mul__(self,other):
+        """ Multiply """
+        return self._compose(other, operator.mul)
+    def __rmul__(self,other):
+        """ Reverse Multiply """
+        return self._compose(other, opr(operator.mul))
+    def __div__(self,other):
+        """ Division: makes a new chebfun """
+        return self._compose(other, operator.div)
+    def __rdiv__(self,other):
+        """ Reversed divide """
+        return self._compose(other, opr(operator.div))
+    def __pow__(self,pow):
+        """ Raise to a power """
+        return self._compose(pow, operator.pow)
+    def __abs__(self):
+        """ absolute value """
+        newguy = self._new_func(lambda x: np.abs(self._eval(x)))
+        return newguy
+    def __neg__(self):
+        """ negative """
+        return self.__mul__(-1)
+    def __pos__(self):
+        """ pos returns self """
+        return self
+
+
 
 class Chebfun(Cheb):
     """ A container for a full chebfun, with piecewise bits """
@@ -431,7 +386,7 @@ class Chebfun(Cheb):
         assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
         assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
-        self.chebs = chebs
+        self.polys = chebs
         self.edges = edges
 
         self.mapper = lambda x: x
@@ -465,7 +420,7 @@ class Chebfun(Cheb):
         edgepairs = zip(fulledges,fulledges[1:])
 
         #initial go at chebfuns
-        self.chebfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
+        self.polyfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
 
         #need a self.func
         self._eval = self.__call__
@@ -478,7 +433,7 @@ class Chebfun(Cheb):
     def __call__(self,xs):
         """ Evaluate on some points """
         #local access
-        edges, imps, chebfuns = self.edges, self.imps, self.chebfuns
+        edges, imps, chebfuns = self.edges, self.imps, self.polyfuns
         @np.vectorize
         def call_on_x(x):
             if x in edges:
@@ -505,17 +460,17 @@ class Chebfun(Cheb):
 
     def _wrap_call(self,func):
         """ We were called by a wrapped func """
-        newchebs = [ cheb._new_func(lambda x: func(cheb._eval(x))) for cheb in self.chebfuns ]
+        newchebs = [ cheb._new_func(lambda x: func(cheb._eval(x))) for cheb in self.polyfuns ]
         newguy = self._new_chebfuns(newchebs)
         return newguy
 
     def __add__(self,other):
         """ Add  """
         try:
-            newchebs = [ cheb.__add__(other) for cheb in self.chebfuns ]
+            newchebs = [ cheb.__add__(other) for cheb in self.polyfuns ]
         except NameError:
             newchebs = [ cheb._new_func(lambda x: cheb._eval(x) + other._eval(x),
-                            rtol=min(self.rtol,other.rtol)) for cheb in self.chebfuns ]
+                            rtol=min(self.rtol,other.rtol)) for cheb in self.polyfuns ]
         newguy = self._new_chebfuns(newchebs)
         return newguy
 
