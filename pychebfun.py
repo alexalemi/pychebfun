@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import division
 
 """
 Chebfun is a work in progress clone of the Matlab Chebfun project"""
@@ -19,7 +20,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import tools
-logger = tools.logging.getLogger('pychebfun')
+import logging
+logger = logging.getLogger('pychebfun')
+logger.setLevel(logging.DEBUG)
 
 #----------------------
 # SETTINGS
@@ -147,29 +150,22 @@ class Cheb(object):
     @property
     def poly(self):
         """ Try to make construction lazy """
-        if not self._constructed:
+        if not self._constructed: # or not hasattr(self,'_poly'):
             a,b = self.domain
-            self._constructed = True
             poly = tools.construct(self.func,a,b,rtol=self.rtol)
-            self.poly = poly
+            self._poly = poly
+            self._constructed = True
         return self._poly
 
     @poly.setter
     def poly(self, x):
-        logger.debug("in setter")
-        self._construced = True
+        self._constructed = True
         self._poly = x
 
     @poly.deleter
     def poly(self):
         del self._poly
-        self._construced = False
-
-    @property
-    def _eval(self):
-        if self._constructed:
-            return self.__call__
-        return self.func
+        self._constructed = False
 
     @property
     def naf(self):
@@ -178,47 +174,6 @@ class Cheb(object):
     def trim(self):
         coeffs = tools.trim_arr(self.poly.coef)
         self.poly = tools.ChebyshevPolynomial(coeffs,domain=self.domain)
-
-    def _new_func(self,func,rtol=None,domain=None):
-        """ Replace the function with another function """
-        rtol = rtol or self.rtol
-        domain = domain or self.domain
-        newguy = self.__class__(func,rtol=rtol,domain=domain)
-        return newguy
-
-
-    def _new_domain(self,other):
-        """ Compose two domains """
-        a,b = self.domain
-        othera, otherb = getattr(other,"domain",(-np.inf,np.inf))
-        return (max(a,othera), min(b,otherb))
-
-    def _compose(self,other,op):
-        """ Given some other thing and an operator, create a new cheb
-        by evaluating the two, i.e. function composition """
-        if callable(other):
-            newfunc = lambda x: op(self._eval(x), other(x))
-        else:
-            newfunc = lambda x: op(self._eval(x) , other)
-
-        new_rtol = max(self.rtol, getattr(other,"rtol",0))
-        new_domain = self._new_domain(other)
-
-        return self._new_func(newfunc,rtol=new_rtol,domain=new_domain)
-
-    def __call__(self,arg):
-        """ make it behave like a function """
-        if isinstance(arg,Cheb):
-            # we have another cheb here
-            mya,myb = self.domain
-            othera, otherb = arg.range
-            assert mya <= othera and myb >= otherb, "Domain must include range of other function"
-            return self._new_func(lambda x: self._eval(arg._eval(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
-        #Check that we are still in the domain
-        a,b = self.domain
-        if np.any( (arg < a) + (arg > b) ):
-            warnings.warn("Evaluating outside the domain", DomainWarning)
-        return self.poly(arg)
 
     def deriv(self,m=1):
         """ Take a derivative, m is the order """
@@ -351,6 +306,57 @@ class Cheb(object):
             func.__doc__  = "wraps numpy ufunc: {}".format(attr)
             return func
         return self.__getattribute__(attr)
+
+    def _new_func(self,newfunc,rtol=None,domain=None):
+        """ Replace the function with another function """
+        # self.rtol = rtol or self.rtol
+        # self.domain = domain or self.domain
+        # a,b = self.domain
+        # self.mapper = tools.gen_mapper(a,b)
+        # self.imapper = tools.gen_imapper(a,b)
+        # logger.debug("func type: %r", type(newfunc))
+        # self.func = newfunc
+        # self._constructed = False
+        # return self
+
+        rtol = rtol or self.rtol
+        domain = domain or self.domain
+        newguy = self.__class__(newfunc,rtol=rtol,domain=domain)
+        return newguy
+
+    def _new_domain(self,other):
+        """ Compose two domains """
+        a,b = self.domain
+        othera, otherb = getattr(other,"domain",(-np.inf,np.inf))
+        return (max(a,othera), min(b,otherb))
+
+    def _compose(self,other,op):
+        """ Given some other thing and an operator, create a new cheb
+        by evaluating the two, i.e. function composition """
+        if callable(other):
+            newfunc = lambda x: op(self._eval(x), other(x))
+        else:
+            newfunc = lambda x: op(self._eval(x) , other)
+
+        new_rtol = max(self.rtol, getattr(other,"rtol",0))
+        new_domain = self._new_domain(other)
+
+        return self._new_func(newfunc,rtol=new_rtol,domain=new_domain)
+
+    def _eval(self,arg):
+        """ A fancy call """
+        if isinstance(arg,Cheb):
+            # we have another cheb here
+            mya,myb = self.domain
+            othera, otherb = arg.range
+            assert mya <= othera and myb >= otherb, "Domain must include range of other function"
+            return self._new_func(lambda x: self._eval(arg._eval(x)), arg.domain,rtol=min(arg.rtol,self.rtol))
+        #Check that we are still in the domain
+        a,b = self.domain
+        if np.any( (arg < a) + (arg > b) ):
+            warnings.warn("Evaluating outside the domain", DomainWarning)
+        return self.poly(arg)
+    __call__ = _eval
 
     def __add__(self,other):
         """ Add  """
