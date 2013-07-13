@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 import tools
 import logging
 logger = logging.getLogger('pychebfun')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 #----------------------
 # SETTINGS
@@ -47,13 +47,12 @@ NP_OVERLOAD = set(("arccos", "arccosh", "arcsin", "arcsinh", "arctan", "arctanh"
 
 class Cheb(object):
     """ A simple cheb object, which represents a function defined on a
-    domain with a chebyshev polynomial to within machine precision
+    domain with a chebyshev polynomial to within machine precision """
 
-    """
-    def __init__(self,func,domain=None,N=None,rtol=None):
+    def __init__(self,obj,domain=None,N=None,rtol=None):
         """ Initilize the cheb
 
-                func can be one of
+                obj can be one of
                     * a python callable
                     * a numpy ufunc
                     * a string (using the numpy namespace)
@@ -87,51 +86,26 @@ class Cheb(object):
 
         #Here I have a somewhat inelegant casing out
         #    to allow initilization overloading
-        if isinstance(func, self.__class__):
+        if isinstance(obj, self.__class__):
             #if we have a chebfun, just copy it
-            logger.debug("INIT: Copying chebfun")
-            self.poly = func.cheb
-            self.domain = func.domain
-            self.rtol = func.rtol
-            self.func = func.func
-            self._constructed = True
-        elif isinstance(func,tools.ChebyshevPolynomial):
+            self._from_cheb(other_cheb=obj)
+        elif isinstance(obj,tools.ChebyshevPolynomial):
             #we have a chebyshev poly
-            logger.debug("INIT: chebyshev polynomial")
-            self.poly = func
-            self.func = self.poly
-            self.domain = tuple(self.poly.domain)
-            self._constructed = True
-        elif isinstance(func,np.ndarray):
+            self._from_poly(poly=obj)
+        elif isinstance(obj,np.ndarray):
             #use the ndarray as our coefficients
-            logger.debug("INIT: ndarray")
-            arr = func
-            self.poly = tools.ChebyshevPolynomial(arr,domain=self.domain)
-            self.func = self.poly
-            self._constructed = True
-        elif isinstance(func,str):
+            self._from_array(array=obj)
+        elif isinstance(obj,str):
             #we have a string, eval it in the numpy namespace
-            logger.debug("INIT: string")
-            self.func = eval("lambda x: {}".format(func),np.__dict__)
-        elif isinstance(func,(np.ufunc,np.vectorize)):
+            self._from_string(string=obj)
+        elif isinstance(obj,(np.ufunc,np.vectorize)):
             # we're good to go
-            logger.debug("INIT: safe non vectorize func")
-            self.func = func
-        elif callable(func):
+            self._from_ufunc(ufunc=obj)
+        elif callable(obj):
             #try to vectorize a general callable
-            # first see if we can use it anyway
-            a,b = self.domain
-            xs = (b-a)*np.random.rand(2) + a
-            try:
-                logger.debug("INIT: func = %r", func)
-                z = func(xs)
-                self.func = func
-                logger.debug("INIT: sneaky vectorize")
-            except Exception:
-                logger.debug("INIT: explicit vectorize")
-                self.func = np.vectorize(func)
+            self._from_func(func=obj)
         else:
-            raise TypeError, "I don't understand your func: {}".format(func)
+            raise TypeError, "I don't understand your func: {}".format(obj)
 
         if N is not None:
             #if the user passed in an N, assume that's what he wants
@@ -140,6 +114,55 @@ class Cheb(object):
             coeffs = tools.fit(func, N)
             self.poly = tools.ChebyshevPolynomial(coeffs,self.domain)
             self._constructed = True
+
+    def _from_cheb(self, other_cheb):
+        """ Create a new guy from a cheb """
+        logger.debug("INIT: Copying chebfun")
+        self.poly = other_cheb.cheb
+        self.domain = other_cheb.domain
+        self.rtol = other_cheb.rtol
+        self.func = other_cheb.func
+        self._constructed = True
+
+    def _from_poly(self, poly):
+        """ Create a new guy from a poly """
+        logger.debug("INIT: chebyshev polynomial")
+        self.poly = poly
+        self.func = self.poly
+        self.domain = tuple(self.poly.domain)
+        self._constructed = True
+
+    def _from_array(self,array):
+        """ Create a new guy from an array """
+        logger.debug("INIT: ndarray")
+        self.poly = tools.ChebyshevPolynomial(array,domain=self.domain)
+        self.func = self.poly
+        self._constructed = True
+
+    def _from_string(self,string):
+        """ Create a new guy from a string that we evaluate in the numpy namespace """
+        logger.debug("INIT: string")
+        self.func = eval("lambda x: {}".format(string),np.__dict__)
+
+    def _from_ufunc(self,ufunc):
+        """ Create a new guy from a ufunc """
+        logger.debug("INIT: safe non vectorize func")
+        self.func = ufunc
+
+    def _from_func(self, func):
+        """ Try to build a new guy from a function """
+        a,b = self.domain
+        xs = (b-a)*np.random.rand(2) + a
+        # First see if we can treat it as vectorized anyway
+        try:
+            logger.debug("INIT: func = %r", func)
+            z = func(xs)
+            self.func = func
+            logger.debug("INIT: sneaky vectorize")
+        except Exception:
+            logger.debug("INIT: explicit vectorize")
+            self.func = np.vectorize(func)
+
 
     @property
     def poly(self):
