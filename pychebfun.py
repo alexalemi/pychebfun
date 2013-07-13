@@ -94,7 +94,7 @@ class Cheb(object):
         #by default use numpy float tolerance
         self.rtol = rtol or DEFAULT_TOL
 
-        need_construct = True
+        self._constructed = False
 
         #Here I have a somewhat inelegant casing out
         #    to allow initilization overloading
@@ -104,20 +104,19 @@ class Cheb(object):
             self.domain = func.domain
             self.rtol = func.rtol
             self.func = func.func
-            need_construct = False
+            self._constructed = True
         elif isinstance(func,tools.ChebyshevPolynomial):
             #we have a chebyshev poly
             self.poly = func
             self.func = self.poly
             self.domain = tuple(self.poly.domain)
-            self.func = self.__call__
-            need_construct = False
+            self._constructed = True
         elif isinstance(func,np.ndarray):
             #use the ndarray as our coefficients
             arr = func
             self.poly = tools.ChebyshevPolynomial(arr,domain=self.domain)
             self.func = self.poly
-            need_construct = False
+            self._constructed = True
         elif isinstance(func,str):
             #we have a string, eval it in the numpy namespace
             self.func = eval("lambda x: {}".format(func),np.__dict__)
@@ -143,16 +142,34 @@ class Cheb(object):
             func = lambda x: self.func(self.imapper(x))
             coeffs = tools.fit(func, N)
             self.poly = tools.ChebyshevPolynomial(coeffs,self.domain)
-            need_construct = False
+            self._constructed = True
 
-        if need_construct:
+    @property
+    def poly(self):
+        """ Try to make construction lazy """
+        if not self._constructed:
             a,b = self.domain
+            self._constructed = True
             poly = tools.construct(self.func,a,b,rtol=self.rtol)
             self.poly = poly
+        return self._poly
 
-        #this allows me to switch between keeping the funcs and using the cheb
-        #to evaluate the deeper things
-        self._eval = self.__call__
+    @poly.setter
+    def poly(self, x):
+        logger.debug("in setter")
+        self._construced = True
+        self._poly = x
+
+    @poly.deleter
+    def poly(self):
+        del self._poly
+        self._construced = False
+
+    @property
+    def _eval(self):
+        if self._constructed:
+            return self.__call__
+        return self.func
 
     @property
     def naf(self):
@@ -169,10 +186,6 @@ class Cheb(object):
         newguy = self.__class__(func,rtol=rtol,domain=domain)
         return newguy
 
-    def _wrap_call(self,func):
-        """ We were called by a wrapped function """
-        newguy = self._new_func(lambda x: func(self._eval(x)))
-        return newguy
 
     def _new_domain(self,other):
         """ Compose two domains """
@@ -255,10 +268,10 @@ class Cheb(object):
     def range(self):
         """ try to determine the range for the function """
         a,b = self.domain
-        fa = float(self._eval(a))
-        fb = float(self._eval(b))
+        fa = float(self.poly(a))
+        fb = float(self.poly(b))
         #use the cheb derivative to find extemums
-        extremums = self._eval(self.deriv().introots())
+        extremums = self.poly(self.deriv().introots())
         if extremums:
             exmax = float(extremums.max())
             exmin = float(extremums.min())
@@ -379,147 +392,108 @@ class Cheb(object):
 
 
 
-class Chebfun(Cheb):
-    """ A container for a full chebfun, with piecewise bits """
-    def __init__(self, chebs, edges, imps = None, domain = None, rtol=None):
-        """ Initialize """
-        assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
-        assert edges == sorted(edges), "Edges must be in order, least to greatest"
+# class Chebfun(Cheb):
+#     """ A container for a full chebfun, with piecewise bits """
+#     def __init__(self, chebs, edges, imps = None, domain = None, rtol=None):
+#         """ Initialize """
+#         assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
+#         assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
-        self.polys = chebs
-        self.edges = edges
+#         self.polys = chebs
+#         self.edges = edges
 
-        self.mapper = lambda x: x
-        self.imapper = lambda x: x
-        self.domain = (-1,1)
-        #tells if we've had problems
+#         self.mapper = lambda x: x
+#         self.imapper = lambda x: x
+#         self.domain = (-1,1)
+#         #tells if we've had problems
 
-        if domain is not None:
-            #if we were passed a domain
-            a,b = domain
-            self.domain = (a,b)
-            #mapper maps from (a,b) to (-1,1)
-            self.mapper = lambda x: (2*x-(a+b))/(b-a)
-            #imapper maps from (-1,1) to (a,b)
-            self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
+#         if domain is not None:
+#             #if we were passed a domain
+#             a,b = domain
+#             self.domain = (a,b)
+#             #mapper maps from (a,b) to (-1,1)
+#             self.mapper = lambda x: (2*x-(a+b))/(b-a)
+#             #imapper maps from (-1,1) to (a,b)
+#             self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
-        #by default use numpy float tolerance
-        self.rtol = rtol or DEFAULT_TOL
+#         #by default use numpy float tolerance
+#         self.rtol = rtol or DEFAULT_TOL
 
-        if imps is None:
-            # by default make the values at the breaks the average on either side
-            nfuncs = len(self.funcs)
-            pairs = zip(xrange(nfuncs),xrange(1,nfuncs))
-            self.imps = [ 0.5*(self.funcs[i](x) + self.funcs[j](x)) for ((i,j),x) in zip(pairs,edges) ]
-        else:
-            self.imps = imps
-
-        a,b = self.domain
-        fulledges = [a] + edges + [b]
-        #get the individual domains
-        edgepairs = zip(fulledges,fulledges[1:])
-
-        #initial go at chebfuns
-        self.polyfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
-
-        #need a self.func
-        self._eval = self.__call__
-
-    @property
-    def nfuncs(self):
-        """ number of functions """
-        return len(self.funcs)
-
-    def __call__(self,xs):
-        """ Evaluate on some points """
-        #local access
-        edges, imps, chebfuns = self.edges, self.imps, self.polyfuns
-        @np.vectorize
-        def call_on_x(x):
-            if x in edges:
-                return imps[edges.index(x)]
-            else:
-                pk = bisect(edges,x)
-                return chebfuns[pk](x)
-
-        return call_on_x(xs)
-
-    def _new_chebfuns(self,chebfuns,edges=None,imps=None,rtol=None):
-        """ Replace the chebfuns """
-        newguy = copy.copy(self)
-        newguy.chebfuns = chebfuns
-
-        if edges:
-            newguy.edges = edges
-        if imps:
-            newguy.imps = imps
-        if rtol:
-            newguy.rtol = rtol
-
-        return newguy
-
-    def _wrap_call(self,func):
-        """ We were called by a wrapped func """
-        newchebs = [ cheb._new_func(lambda x: func(cheb._eval(x))) for cheb in self.polyfuns ]
-        newguy = self._new_chebfuns(newchebs)
-        return newguy
-
-    def __add__(self,other):
-        """ Add  """
-        try:
-            newchebs = [ cheb.__add__(other) for cheb in self.polyfuns ]
-        except NameError:
-            newchebs = [ cheb._new_func(lambda x: cheb._eval(x) + other._eval(x),
-                            rtol=min(self.rtol,other.rtol)) for cheb in self.polyfuns ]
-        newguy = self._new_chebfuns(newchebs)
-        return newguy
-
-    def __len__(self):
-        """ get the number of chebfuns """
-        return len(self.funcs)
-
-    def __repr__(self):
-        out = "<{}(nfuncs={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
-                    self.__len__(), self.domain,self.rtol,self.naf)
-        return out
-
-
-def chebfun(func, domain=None, N=None, rtol=None):
-    """ Try to build a chebfun """
-
-
-
-
-
-############## BEGIN NUMPY OVERLOADING ##############
-
-#Let's overload all the numpy ufuncs
-#  so that if they are called on a chebfun, make a new chebfun
-# def wrap(func):
-#     def chebfunc(arg):
-#         __doc__  = func.__doc__
-#         if isinstance(arg,Cheb):
-#             #return arg.__class__(lambda x: func(arg.func(x)), arg.domain, rtol=arg.rtol)
-#             return arg._wrap_call(func)
+#         if imps is None:
+#             # by default make the values at the breaks the average on either side
+#             nfuncs = len(self.funcs)
+#             pairs = zip(xrange(nfuncs),xrange(1,nfuncs))
+#             self.imps = [ 0.5*(self.funcs[i](x) + self.funcs[j](x)) for ((i,j),x) in zip(pairs,edges) ]
 #         else:
-#             return func(arg)
-#     return chebfunc
+#             self.imps = imps
 
-# this_module = sys.modules[__name__]
-# #list of numpy functions to overload
-# toimport = ["sin","cos","tan","sinh","cosh","tanh",
-#                 "arcsin","arccos","arctan",
-#                 "arcsinh","arccosh","arctanh",
-#                 "exp","exp2","log","log2","log10","expm1","log1p",
-#                 "sqrt","square","reciprocal","sign","absolute","conj"]
-# #make wrapped version of the functions
-# mathfuncs = { k:wrap(v) for k,v in np.__dict__.iteritems() if k in toimport }
+#         a,b = self.domain
+#         fulledges = [a] + edges + [b]
+#         #get the individual domains
+#         edgepairs = zip(fulledges,fulledges[1:])
 
-# #add the funcs to the current name space
-# for k,v in mathfuncs.iteritems():
-#     setattr(this_module,k,v)
+#         #initial go at chebfuns
+#         self.polyfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
 
-#########  END NUMPY OVERLOADING ###############
+#         #need a self.func
+#         self._eval = self.__call__
+
+#     @property
+#     def nfuncs(self):
+#         """ number of functions """
+#         return len(self.funcs)
+
+#     def __call__(self,xs):
+#         """ Evaluate on some points """
+#         #local access
+#         edges, imps, chebfuns = self.edges, self.imps, self.polyfuns
+#         @np.vectorize
+#         def call_on_x(x):
+#             if x in edges:
+#                 return imps[edges.index(x)]
+#             else:
+#                 pk = bisect(edges,x)
+#                 return chebfuns[pk](x)
+
+#         return call_on_x(xs)
+
+#     def _new_chebfuns(self,chebfuns,edges=None,imps=None,rtol=None):
+#         """ Replace the chebfuns """
+#         newguy = copy.copy(self)
+#         newguy.chebfuns = chebfuns
+
+#         if edges:
+#             newguy.edges = edges
+#         if imps:
+#             newguy.imps = imps
+#         if rtol:
+#             newguy.rtol = rtol
+
+#         return newguy
+
+
+#     def __add__(self,other):
+#         """ Add  """
+#         try:
+#             newchebs = [ cheb.__add__(other) for cheb in self.polyfuns ]
+#         except NameError:
+#             newchebs = [ cheb._new_func(lambda x: cheb._eval(x) + other._eval(x),
+#                             rtol=min(self.rtol,other.rtol)) for cheb in self.polyfuns ]
+#         newguy = self._new_chebfuns(newchebs)
+#         return newguy
+
+#     def __len__(self):
+#         """ get the number of chebfuns """
+#         return len(self.funcs)
+
+#     def __repr__(self):
+#         out = "<{}(nfuncs={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
+#                     self.__len__(), self.domain,self.rtol,self.naf)
+#         return out
+
+
+# def chebfun(func, domain=None, N=None, rtol=None):
+#     """ Try to build a chebfun """
 
 
 # a convenience chebfun
