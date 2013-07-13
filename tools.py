@@ -1,7 +1,7 @@
 import logging
 logging.info("Inside tools")
 logger = logging.getLogger('tools')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 import numpy as np
 #get common numpy functions in namespace
