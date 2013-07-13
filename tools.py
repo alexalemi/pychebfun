@@ -2,6 +2,13 @@ import logging
 logging.info("Inside tools")
 logger = logging.getLogger('tools')
 logger.setLevel(logging.INFO)
+import warnings
+warnings.simplefilter("always")
+
+#A simple convergence warning
+class ConvergenceWarning(Warning): pass
+class DomainWarning(Warning): pass
+warnings.simplefilter("always")
 
 import numpy as np
 #get common numpy functions in namespace

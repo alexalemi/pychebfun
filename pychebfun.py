@@ -13,7 +13,8 @@ import sys
 import math
 import copy
 import operator
-import bisect
+from bisect import bisect
+import collections
 
 import numpy as np
 # import scipy as sp
@@ -22,7 +23,7 @@ import matplotlib.pyplot as plt
 import tools
 import logging
 logger = logging.getLogger('pychebfun')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 #----------------------
 # SETTINGS
@@ -39,25 +40,10 @@ def opr(func):
         return func(*reversed(args))
     return rfunc
 
-def castscalar(method):
-    """ Decorator to ensure scalars work like functions as arguments
-        from: https://github.com/pychebfun/pychebfun/blob/master/pychebfun/chebfun.py#L24-L33
-    """
-    @wraps(method)
-    def new_method(self, other):
-        if np.isscalar(other):
-            other = lambda x: other
-        return method(self, other)
-    return new_method
-
 NP_OVERLOAD = set(("arccos", "arccosh", "arcsin", "arcsinh", "arctan", "arctanh", "cos",
      "sin", "tan", "cosh", "sinh", "tanh", "exp", "exp2", "expm1", "log", "log2", "log1p",
      "sqrt", "ceil", "trunc", "fabs", "floor", ))
 
-#A simple convergence warning
-class ConvergenceWarning(Warning): pass
-class DomainWarning(Warning): pass
-warnings.simplefilter("always")
 
 class Cheb(object):
     """ A simple cheb object, which represents a function defined on a
@@ -103,6 +89,7 @@ class Cheb(object):
         #    to allow initilization overloading
         if isinstance(func, self.__class__):
             #if we have a chebfun, just copy it
+            logger.debug("INIT: Copying chebfun")
             self.poly = func.cheb
             self.domain = func.domain
             self.rtol = func.rtol
@@ -110,21 +97,25 @@ class Cheb(object):
             self._constructed = True
         elif isinstance(func,tools.ChebyshevPolynomial):
             #we have a chebyshev poly
+            logger.debug("INIT: chebyshev polynomial")
             self.poly = func
             self.func = self.poly
             self.domain = tuple(self.poly.domain)
             self._constructed = True
         elif isinstance(func,np.ndarray):
             #use the ndarray as our coefficients
+            logger.debug("INIT: ndarray")
             arr = func
             self.poly = tools.ChebyshevPolynomial(arr,domain=self.domain)
             self.func = self.poly
             self._constructed = True
         elif isinstance(func,str):
             #we have a string, eval it in the numpy namespace
+            logger.debug("INIT: string")
             self.func = eval("lambda x: {}".format(func),np.__dict__)
         elif isinstance(func,(np.ufunc,np.vectorize)):
             # we're good to go
+            logger.debug("INIT: safe non vectorize func")
             self.func = func
         elif callable(func):
             #try to vectorize a general callable
@@ -132,9 +123,12 @@ class Cheb(object):
             a,b = self.domain
             xs = (b-a)*np.random.rand(2) + a
             try:
-                func(x)
+                logger.debug("INIT: func = %r", func)
+                z = func(xs)
                 self.func = func
+                logger.debug("INIT: sneaky vectorize")
             except Exception:
+                logger.debug("INIT: explicit vectorize")
                 self.func = np.vectorize(func)
         else:
             raise TypeError, "I don't understand your func: {}".format(func)
@@ -151,9 +145,10 @@ class Cheb(object):
     def poly(self):
         """ Try to make construction lazy """
         if not self._constructed: # or not hasattr(self,'_poly'):
+            logger.debug("lazy construct")
             a,b = self.domain
             poly = tools.construct(self.func,a,b,rtol=self.rtol)
-            self._poly = poly
+            self.poly = poly
             self._constructed = True
         return self._poly
 
@@ -309,6 +304,7 @@ class Cheb(object):
 
     def _new_func(self,newfunc,rtol=None,domain=None):
         """ Replace the function with another function """
+        # FIXME: I'd like to do this, but it causes an infinite loop
         # self.rtol = rtol or self.rtol
         # self.domain = domain or self.domain
         # a,b = self.domain
@@ -318,7 +314,7 @@ class Cheb(object):
         # self.func = newfunc
         # self._constructed = False
         # return self
-
+        logger.debug("NEWFUNC")
         rtol = rtol or self.rtol
         domain = domain or self.domain
         newguy = self.__class__(newfunc,rtol=rtol,domain=domain)
@@ -333,6 +329,7 @@ class Cheb(object):
     def _compose(self,other,op):
         """ Given some other thing and an operator, create a new cheb
         by evaluating the two, i.e. function composition """
+        logger.debug("_compose, other=%r, op=%r", other, op)
         new_rtol = max(self.rtol, getattr(other,"rtol",0))
         new_domain = self._new_domain(other)
 
@@ -364,7 +361,7 @@ class Cheb(object):
         #Check that we are still in the domain
         a,b = self.domain
         if np.any( (arg < a) + (arg > b) ):
-            warnings.warn("Evaluating outside the domain", DomainWarning)
+            warnings.warn("Evaluating outside the domain", tools.DomainWarning)
         return self.poly(arg)
     __call__ = _eval
 
@@ -409,46 +406,34 @@ class Cheb(object):
 
 class Chebfun(Cheb):
     """ A container for a full chebfun, with piecewise bits """
-    def __init__(self, chebs, edges, imps = None, domain = None, rtol=None):
+    def __init__(self, funcs = None, edges = None, chebs = None, imps = None, rtol=None):
         """ Initialize """
-        assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
-        assert edges == sorted(edges), "Edges must be in order, least to greatest"
+        # assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
+        # assert edges == sorted(edges), "Edges must be in order, least to greatest"
 
-        self.polys = chebs
-        self.edges = edges
+        self.edges = edges or (-1,1)
 
-        self.mapper = lambda x: x
-        self.imapper = lambda x: x
-        self.domain = (-1,1)
-        #tells if we've had problems
-
-        if domain is not None:
-            #if we were passed a domain
-            a,b = domain
-            self.domain = (a,b)
-            #mapper maps from (a,b) to (-1,1)
-            self.mapper = lambda x: (2*x-(a+b))/(b-a)
-            #imapper maps from (-1,1) to (a,b)
-            self.imapper = lambda x: 0.5*(a+b) + 0.5*(b-a)*x
-
+        (a,b) = (self.edges[0], self.edges[-1])
+        self.domain = (a,b)
+        self.mapper = tools.gen_mapper(a,b)
+        self.imapper = tools.gen_imapper(a,b)
         #by default use numpy float tolerance
         self.rtol = rtol or DEFAULT_TOL
 
-        if imps is None:
-            # by default make the values at the breaks the average on either side
+        if not isinstance(funcs, collections.Sequence):
+            self.funcs = [funcs]*(len(self.edges)-1)
+        else:
+            self.funcs = funcs
+
+        self.chebs = chebs or [ Cheb(func,domain=edgepair,rtol=self.rtol) for (func,edgepair) in zip( self.funcs, zip( self.edges, self.edges[1:] ) ) ]
+
+        if not imps:
+            # by default make the values at the breaks as the average on either side
             nfuncs = len(self.funcs)
             pairs = zip(xrange(nfuncs),xrange(1,nfuncs))
-            self.imps = [ 0.5*(self.funcs[i](x) + self.funcs[j](x)) for ((i,j),x) in zip(pairs,edges) ]
+            self.imps = [self.funcs[0](self.edges[0])] + [ 0.5*(self.funcs[i](x) + self.funcs[j](x)) for ((i,j),x) in zip(pairs,self.edges) ] + [ self.funcs[-1](self.edges[-1]) ]
         else:
             self.imps = imps
-
-        a,b = self.domain
-        fulledges = [a] + edges + [b]
-        #get the individual domains
-        edgepairs = zip(fulledges,fulledges[1:])
-
-        #initial go at chebfuns
-        self.polyfuns = [Chebfun(self.funcs[i],domain=edgepair,rtol=self.rtol) for (i,edgepair) in enumerate(edgepairs)]
 
         #need a self.func
         self._eval = self.__call__
@@ -461,16 +446,19 @@ class Chebfun(Cheb):
     def __call__(self,xs):
         """ Evaluate on some points """
         #local access
-        edges, imps, chebfuns = self.edges, self.imps, self.polyfuns
-        @np.vectorize
+        edges, imps, chebfuns = self.edges, self.imps, self.chebs
         def call_on_x(x):
             if x in edges:
                 return imps[edges.index(x)]
             else:
-                pk = bisect(edges,x)
+                # pk = np.digitize(x,edges[1:-1])
+                pk = bisect( edges[1:-1] , x )
+                # logger.info("pk=%d for x=%f", pk, x)
                 return chebfuns[pk](x)
-
-        return call_on_x(xs)
+        try:
+            return np.array([ call_on_x(x) for x in xs ])
+        except TypeError:
+            return call_on_x(xs)
 
     def _new_chebfuns(self,chebfuns,edges=None,imps=None,rtol=None):
         """ Replace the chebfuns """
@@ -490,10 +478,10 @@ class Chebfun(Cheb):
     def __add__(self,other):
         """ Add  """
         try:
-            newchebs = [ cheb.__add__(other) for cheb in self.polyfuns ]
+            newchebs = [ cheb.__add__(other) for cheb in self.chebs ]
         except NameError:
             newchebs = [ cheb._new_func(lambda x: cheb._eval(x) + other._eval(x),
-                            rtol=min(self.rtol,other.rtol)) for cheb in self.polyfuns ]
+                            rtol=min(self.rtol,other.rtol)) for cheb in self.chebs ]
         newguy = self._new_chebfuns(newchebs)
         return newguy
 
@@ -502,13 +490,11 @@ class Chebfun(Cheb):
         return len(self.funcs)
 
     def __repr__(self):
-        out = "<{}(nfuncs={},domain={},rtol={},naf={})>".format(self.__class__.__name__,
-                    self.__len__(), self.domain,self.rtol,self.naf)
+        out = "<{}(nfuncs={},edges={},rtol={},naf={})>".format(self.__class__.__name__,
+                    self.__len__(), self.edges,self.rtol,self.naf)
         return out
 
 
-# def chebfun(func, domain=None, N=None, rtol=None):
-#     """ Try to build a chebfun """
 
 
 # a convenience chebfun
