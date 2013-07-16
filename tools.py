@@ -17,6 +17,7 @@ import numpy.polynomial.chebyshev as np_chebyshev
 Chebyshev = np_chebyshev
 ChebyshevPolynomial = np_chebyshev.Chebyshev
 
+from itertools import cycle, islice, tee, izip
 from scipy.fftpack import idct, ifft
 
 EPS = np.finfo(np.float).eps
@@ -105,6 +106,26 @@ def construct(func,a,b,rtol=DEFAULT_TOL):
     coeffs = trim_arr(coeffs)
     poly = ChebyshevPolynomial(coeffs,(a,b))
     return poly
+
+def roundrobin(*iterables):
+    """roundrobin('ABC', 'D', 'EF') --> A D E B F C
+    from itertools doc page"""
+    # Recipe credited to George Sakkis
+    pending = len(iterables)
+    nexts = cycle(iter(it).next for it in iterables)
+    while pending:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            pending -= 1
+            nexts = cycle(islice(nexts, pending))
+
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return izip(a, b)
 
 ########################################################
 ## Chebfun utility commands, translated from the matlab

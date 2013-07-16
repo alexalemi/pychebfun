@@ -17,6 +17,7 @@ from bisect import bisect
 import collections
 
 import numpy as np
+from numpy import frompyfunc, piecewise
 # import scipy as sp
 import matplotlib.pyplot as plt
 
@@ -161,7 +162,8 @@ class Cheb(object):
             logger.debug("INIT: sneaky vectorize")
         except Exception:
             logger.debug("INIT: explicit vectorize")
-            self.func = np.vectorize(func)
+            # frompyfunc was about twice as fast as vectorize
+            self.func = frompyfunc(func,1,1)
 
 
     @property
@@ -429,7 +431,7 @@ class Cheb(object):
 
 class Chebfun(Cheb):
     """ A container for a full chebfun, with piecewise bits """
-    def __init__(self, funcs = None, edges = None, chebs = None, imps = None, rtol=None):
+    def __init__(self, funcs = None, edges = None, imps = None, chebs = None, rtol=None):
         """ Initialize """
         # assert len(chebs) == len(edges)+1, "Number of funcs and interior edges don't match"
         # assert edges == sorted(edges), "Edges must be in order, least to greatest"
@@ -467,21 +469,18 @@ class Chebfun(Cheb):
         return len(self.funcs)
 
     def __call__(self,xs):
-        """ Evaluate on some points """
+        """ Evaluate on some points, using np.piecewise """
         #local access
         edges, imps, chebfuns = self.edges, self.imps, self.chebs
-        def call_on_x(x):
-            if x in edges:
-                return imps[edges.index(x)]
-            else:
-                # pk = np.digitize(x,edges[1:-1])
-                pk = bisect( edges[1:-1] , x )
-                # logger.info("pk=%d for x=%f", pk, x)
-                return chebfuns[pk](x)
-        try:
-            return np.array([ call_on_x(x) for x in xs ])
-        except TypeError:
-            return call_on_x(xs)
+
+        if len(edges) == 2:
+            return chebfuns[0](xs)
+
+        fullfuncs = list( tools.roundrobin( chebfuns, imps ))
+        middleconds = ( ( (a<xs) + (xs > b) ) for (a,b) in tools.pairwise( edges[1:-1] ) )
+        impulseconds = ( (xs==z) for z in edges[1:-1] )
+        conds = [(xs<edges[1])] + list(tools.roundrobin(impulseconds,middleconds)) + [(xs>edges[-2])]
+        return piecewise(xs, conds, fullfuncs)
 
     def _new_chebfuns(self,chebfuns,edges=None,imps=None,rtol=None):
         """ Replace the chebfuns """
