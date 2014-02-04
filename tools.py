@@ -177,7 +177,6 @@ def detectedge(f,a,b,hs=None,vs=None,der=None,checkblowup=True):
                 edge = nedge
                 return edge
 
-
     edge = mean(ends)
     return edge
 

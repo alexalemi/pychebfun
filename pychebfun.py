@@ -466,7 +466,11 @@ class Chebfun(Cheb):
     @property
     def nfuncs(self):
         """ number of functions """
-        return len(self.funcs)
+        return len(self.chebs)
+
+    @property
+    def naf(self):
+        return any( c.naf for c in self.chebs )
 
     def __call__(self,xs):
         """ Evaluate on some points, using np.piecewise """
@@ -516,8 +520,51 @@ class Chebfun(Cheb):
                     self.__len__(), self.edges,self.rtol,self.naf)
         return out
 
+    def edge(self,i):
+        """ Get the edge for the ith chebfun """
+        return self.edges[i:i+1]
+
+    def split(self):
+        """ Try to breakup the chebfun """
+        while self.naf:
+            edges = self.edges
+            edge_genuine = [True for x in edges]
+            for i,fun in enumerate(self.funcs):
+                a,b = self.edges[i:i+1]
+                c = tools.detectedge(a,b,fun)
+
+                if c - a > 1e-14*(b-a) and b-c > 1e-14*(b-a):
+                    #genuine edge
+                    ind = bisect.bisect(edges,c)
+                    edges.insert(ind,c)
+                    edge_genuine.insert(ind,True)
+                elif c-a < 1e-14*(b-a):
+                    c = 0.01*(b-a) + a
+                    ind = bisect.bisect(edges,c)
+                    edges.insert(ind,c)
+                    edge_genuine.insert(ind,False)
+                elif b-c < 1e-14*(b-a):
+                    c = b - 0.01*(b-a)
+                    ind = bisect.bisect(edges,c)
+                    edges.insert(ind,c)
+                    edge_genuine.insert(ind,False)
+                else:
+                    c = (a+b)/2.
+                    ind = bisect.bisect(edges,c)
+                    edges.insert(ind,c)
+                    edge_genuine.insert(ind,False)
+               
+               #try to construct a new fun on either side
 
 
+
+
+
+def fromfunc(func, domain=None, N=None, rtol=None, splitting=True):
+    """ Create a piecewise chebfun from the following """
+    cheb = Chebfun(func,domain,N,rtol)
+
+    return cheb
 
 # a convenience chebfun
 x = Cheb("x")
