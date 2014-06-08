@@ -1,3 +1,5 @@
 *.pyc
 build/
 matplotlibrc
+docs/.ipynb_checkpoints
+docs/testing.ipynb
