@@ -1,5 +1,9 @@
-
+import logging
+logging.info("Inside tools")
+logger = logging.getLogger('tools')
+logger.setLevel(logging.INFO)
 import warnings
+warnings.simplefilter("always")
 
 #A simple convergence warning
 class ConvergenceWarning(Warning): pass
@@ -7,40 +11,56 @@ class DomainWarning(Warning): pass
 warnings.simplefilter("always")
 
 import numpy as np
-from numpy import max, abs, where
-from collections import namedtuple
-import numpy.polynomial.chebyshev as npcheb
+#get common numpy functions in namespace
+from numpy import inf, isnan, diff, arange, mean, abs, max, ones, linspace, zeros, isinf, array, r_
+import numpy.polynomial.chebyshev as np_chebyshev
+Chebyshev = np_chebyshev
+ChebyshevPolynomial = np_chebyshev.Chebyshev
 
-from scipy.fftpack import dct
+from itertools import cycle, islice, tee, izip
+from scipy.fftpack import idct, ifft
 
 EPS = np.finfo(np.float).eps
 MAXPOW = 15
 NAF_CUTOFF = 128
 DEFAULT_TOL = 3.*EPS
 
-chebpts = npcheb.chebpts2
+def fit_builtin(func,N):
+    """ Return the chebyshev coefficients using the builtin chebfit """
+    pts = Chebyshev.chebpts2(N)
+    y = func(pts)
+    coeffs = Chebyshev.chebfit(pts,y,N)
+    return coeffs
 
-def vals_to_coeffs(f):
-    """ Given the samples of a function on
-    a chebyshev grid, return the coefficients """
-    N = f.size-1
-    out = dct(f[::-1],type=1)/N
-    out[0] /= 2.
-    out[-1] /= 2.
-    return out
+def fit_idct(func,N):
+    """ Return the chebyshev coefficients using the idct """
+    pts = -Chebyshev.chebpts1(N)
+    y = func(pts)
+    coeffs = idct(y,type=3)/N
+    coeffs[0] /= 2.
+    coeffs[-1] /= 2.
+    return coeffs
 
-def coeffs_to_vals(coeffs):
-    """ Given the coefficients, give the 
-    values of a function """
-    foo = coeffs.copy()
-    foo[0] *= 2
-    foo[-1] *= 2
-    vals = dct(foo,type=1)/2
-    return vals[::-1]
+def fit_fft(func,N):
+    """ Get the Chebyshev coefficients using fft
+        inspired by: http://www.scientificpython.net/1/post/2012/4/the-fast-chebyshev-transform.html
+        *Doesn't seem to work right now*
+    """
+    pts = Chebyshev.chebpts2(N)
+    y = func(pts)
+    A = y[:,np.newaxis]
+    m = np.size(y,0)
+    k = m-1-np.arange(m-1)
+    V = np.vstack((A[0:m-1,:],A[k,:]))
+    F = ifft(V,n=None,axis=0)
+    B = np.vstack((F[0,:],2*F[1:m-1,:],F[m-1,:]))
 
-def fit(func, N):
-    """ Return the values of a function on a chebyshev grid """
+    if A.dtype != 'complex':
+        return np.real(B)
+    return B
 
+#Set default
+fit = fit_idct
 
 def gen_mapper(a,b):
     """ Returns a function that mapps from (a,b) to (-1,1) """
@@ -50,16 +70,11 @@ def gen_imapper(a,b):
     """ Returns a function that maps from (-1,1) to (a,b) """
     return lambda x: 0.5*(a+b) + 0.5*(b-a)*x
 
-def trim_arr(arr,scl,rtol=DEFAULT_TOL):
+def trim_arr(arr,rtol=DEFAULT_TOL):
     """ trim an array by rtol """
-    ind, = where(abs(arr) > scl*rtol)
-    if len(ind) == 0:
-        return arr[:1] * 0
-    return arr[:ind[-1]+1].copy()
+    return Chebyshev.chebtrim(arr,max(abs(arr))*rtol)
 
-chebinfo = namedtuple('chebinfo','pts vals coeffs N scl domain func')
-
-def construct(func,a=-1,b=1,rtol=DEFAULT_TOL):
+def construct(func,a,b,rtol=DEFAULT_TOL):
     """ Construct the chebyshev polynomial
 
         Starts with N=4 points and evaluates the function on a set of
@@ -70,7 +85,7 @@ def construct(func,a=-1,b=1,rtol=DEFAULT_TOL):
 
         If not, increment N, if yes, trim as many coefs as possible
     """
-    # logger.debug("Inside Construct")
+    logger.debug("Inside Construct")
     #map to the interval (-1,1)
     imapper = gen_imapper(a,b)
     mapped_func = lambda x: func(imapper(x))
@@ -78,13 +93,9 @@ def construct(func,a=-1,b=1,rtol=DEFAULT_TOL):
     done = False
     while not done:
         N = 2**power
-        
-        pts = chebpts(N)
-        vals = mapped_func(pts)
-        coeffs = vals_to_coeffs(vals)
-        scl = max(abs(coeffs))
 
-        if all(abs(coeffs[-2:]) <= scl*rtol):
+        coeffs = fit(mapped_func,N)
+        if all(abs(coeffs[-2:]) <= max(abs(coeffs))*rtol):
             done = True
 
         power += 1
@@ -92,25 +103,29 @@ def construct(func,a=-1,b=1,rtol=DEFAULT_TOL):
             warnings.warn("we've hit the maximum power",ConvergenceWarning)
             done = True
 
-    coeffs = trim_arr(coeffs, scl, rtol)
-    N = len(coeffs)
-    vals = coeffs_to_vals(coeffs)
-    pts = chebpts(N)
-    return chebinfo(pts=pts, vals=vals, coeffs=coeffs, 
-            scl=scl, domain=(a,b), func=func, N=N)
+    coeffs = trim_arr(coeffs)
+    poly = ChebyshevPolynomial(coeffs,(a,b))
+    return poly
 
-def interp(vals,xs,pts=None,domain=(-1,1)):
-    """ interpolate the function represented by the modal points f, on the points xs """
-    N = vals.size
-    if pts is None:
-        pts = chebpts(N)
-    mapper = gen_mapper(*domain)
-    mapxs = mapper(xs)
-    weights = np.r_[ 1./2, np.ones(N-2), 1./2 ] * (-1)**np.arange(N)
-    mid = ( weights / ( mapxs[:,None] - pts[None,:] ))
-    top =  (mid * vals ).sum(-1)
-    bottom =  mid.sum(-1)
-    return top/bottom
+def roundrobin(*iterables):
+    """roundrobin('ABC', 'D', 'EF') --> A D E B F C
+    from itertools doc page"""
+    # Recipe credited to George Sakkis
+    pending = len(iterables)
+    nexts = cycle(iter(it).next for it in iterables)
+    while pending:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            pending -= 1
+            nexts = cycle(islice(nexts, pending))
+
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ..."
+    a, b = tee(iterable)
+    next(b, None)
+    return izip(a, b)
 
 ########################################################
 ## Chebfun utility commands, translated from the matlab
