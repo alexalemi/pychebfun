@@ -11,5 +11,5 @@ dependencies = [
     "scipy>=1.16.0",
 ]
 [build-system]
-requires = ["hatchling", "numpy"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
