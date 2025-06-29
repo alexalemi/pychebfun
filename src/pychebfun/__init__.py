@@ -14,7 +14,7 @@ import math
 import copy
 import operator
 from bisect import bisect
-import collections
+import collections.abc
 
 import numpy as np
 from numpy import frompyfunc, piecewise
@@ -483,7 +483,7 @@ class Chebfun(Cheb):
         # by default use numpy float tolerance
         self.rtol = rtol or DEFAULT_TOL
 
-        if not isinstance(funcs, collections.Sequence):
+        if not isinstance(funcs, collections.abc.Sequence):
             self.funcs = [funcs] * (len(self.edges) - 1)
         else:
             self.funcs = funcs

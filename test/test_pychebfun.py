@@ -3,10 +3,6 @@ Test pychebfun
 
 """
 
-import sys, os
-
-sys.path.insert(0, os.path.abspath(".."))
-
 from pychebfun import *
 import numpy as np
 import scipy as sp
