@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Simple Chebfun clone."
 readme = "README.md"
 requires-python = ">=3.13"
+classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "matplotlib>=3.10.3",
     "numpy>=2.3.1",
@@ -11,3 +12,8 @@ dependencies = [
 ]
 [tool.setuptools]
 py-modules = ["pychebfun"]
+
+[dependency-groups]
+dev = [
+    "numpy>=2.3.1",
+]

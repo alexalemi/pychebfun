@@ -534,9 +534,9 @@ class Chebfun(Cheb):
         middleconds = (((a < xs) + (xs > b)) for (a, b) in tools.pairwise(edges[1:-1]))
         impulseconds = ((xs == z) for z in edges[1:-1])
         conds = (
-            [(xs < edges[1])]
+            [xs < edges[1]]
             + list(tools.roundrobin(impulseconds, middleconds))
-            + [(xs > edges[-2])]
+            + [xs > edges[-2]]
         )
         return piecewise(xs, conds, fullfuncs)
 
