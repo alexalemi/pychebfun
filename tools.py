@@ -13,7 +13,7 @@ import numpy.polynomial.chebyshev as npcheb
 
 from scipy.fftpack import dct
 
-EPS = np.finfo(np.float).eps
+EPS = np.finfo(float).eps
 MAXPOW = 15
 NAF_CUTOFF = 128
 DEFAULT_TOL = 3.*EPS
