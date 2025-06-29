@@ -22,7 +22,7 @@ from numpy import frompyfunc, piecewise
 # import scipy as sp
 import matplotlib.pyplot as plt
 
-import tools
+from . import tools
 import logging
 
 logger = logging.getLogger("pychebfun")
