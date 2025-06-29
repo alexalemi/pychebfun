@@ -10,10 +10,6 @@ dependencies = [
     "numpy>=2.3.1",
     "scipy>=1.16.0",
 ]
-[tool.setuptools]
-py-modules = ["pychebfun"]
-
-[dependency-groups]
-dev = [
-    "numpy>=2.3.1",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
